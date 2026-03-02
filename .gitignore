@@ -1,0 +1,25 @@
+# Ambientes Virtuais (VENV)
+venv/
+.env/
+env/
+__pycache__/
+*.pyc
+*.pyo
+
+# Arquivos de Dados e Modelos Pesados (Evitar GitHub Limits)
+data/raw/*.csv
+data/interim/*.csv
+data/processed/*.csv
+models/*.pkl
+models/*.joblib
+metrics/*.json
+
+# Variáveis Sensiveis e IDEs
+credencial.py
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+logs/
+*.log
