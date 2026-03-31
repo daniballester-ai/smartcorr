@@ -33,9 +33,6 @@ data:
     - WAHA_Qtd_Daily
     
     # --- SINAIS DE FUMAÇA (Lags: O que estava acontecendo 30-90 minutos atrás) ---
-    - NS_Lag_1
-    - NS_Lag_2
-    - NS_Lag_3
     - Taxa_Abandono_Lag_1
     
     # --- EFICIÊNCIA, OCUPAÇÃO E DESVIOS (Lags: Imediato Passado D-1) ---
@@ -46,6 +43,17 @@ data:
     - Taxa_Pausa_Gestao_Lag_1
     - Desvio_HC_Pct_Lag_1
     - Desvio_Volume_Pct_Lag_1
+    - Delta_TMA_Lag_1
+    
+    # --- FEATURES SINTÉTICAS ---
+    - Pressao_Prevista_Vol_HC
+    - Indicador_Sufoco
+    
+    # --- INDICADORES DE PERDA DE LOG (Diários - Broadcast | Pilar Pessoas) ---
+    - PerdaLog_Taxa_Daily        # % de horas perdidas vs PPH (Gap de Log)
+    - TechIssues_Taxa_Daily      # Taxa de indisponibilidade sistêmica
+    - NewHire_Pct_Daily          # % de novatos na operação
+    - AgentIssues_Taxa_Daily     # Taxa de problemas do agente
 
 model:
   path: models/model.pkl
@@ -56,8 +64,12 @@ model:
     sample_frac: 0.2
   params:
     n_estimators: 100
-    max_depth: 5
+    max_depth: 3
     learning_rate: 0.1
+    alpha: 5
+    reg_lambda: 5
+    colsample_bytree: 0.8
+    subsample: 0.8
     random_state: 42
     n_jobs: -1
 

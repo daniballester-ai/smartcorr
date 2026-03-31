@@ -34,6 +34,10 @@ def criar_features(df):
     df['TMA_Previsto_Avg'] = np.where(df['Vol_Previsto'] > 0, df['Tempo_AHT_Previsto_Total'] / df['Vol_Previsto'], 0.0)
     df['Delta_TMA'] = df['TMA_Real_Avg'] - df['TMA_Previsto_Avg']
     
+    # 1.1 Features Sintéticas (Engenharia de Variáveis Combinadas)
+    df['Pressao_Prevista_Vol_HC'] = np.where(df['HC_Previsto'] > 0, df['Vol_Previsto'] / df['HC_Previsto'], 0.0)
+    df['Indicador_Sufoco'] = np.where(df['HC_Previsto'] > 0, df['Tempo_AHT_Previsto_Total'] / (df['HC_Previsto'] * 1800), 0.0)
+    
     # 1.5. Engenharia de Features Módulo RH (Indicadores GO!)
     # Previne a distorção do Paradoxo de Simpson calculando a taxa pontual no Python e protegendo contra divisão por zero
     df['ABS_Taxa_Daily'] = np.where(df['ABS_Escala_Sec_Daily'] > 0, df['ABS_Tempo_Sec_Daily'] / df['ABS_Escala_Sec_Daily'], 0.0)
@@ -60,6 +64,49 @@ def criar_features(df):
     df['Desvio_HC_Pct'] = np.where(df['HC_Previsto'] > 0, df['Delta_HC'] / df['HC_Previsto'], 0.0)
     df['Desvio_Volume_Pct'] = np.where(df['Vol_Previsto'] > 0, df['Delta_Volume'] / df['Vol_Previsto'], 0.0)
     
+    # 2.0 Engenharia de Features - Módulo Perda de Log (FatoTempoSistemas)
+    # Dados diários broadcast: mesmo valor para todos os intervalos do dia
+    # Preenche com 0 os dias que não tiveram cruzamento (LEFT JOIN sem match)
+    colunas_perda_log = [
+        'PerdaLog_Total_Sec', 'PPH_Total_Sec', 'SysFailure_Sec_Daily',
+        'ClientSysFailure_Sec_Daily', 'SeatUnavail_Sec_Daily',
+        'TechIssues_Total_Sec_Daily', 'NewHire_Qtd_Daily',
+        'HC_Total_PerdaLog_Daily', 'AgentIssues_Sec_Daily'
+    ]
+    for coluna in colunas_perda_log:
+        if coluna not in df.columns:
+            df[coluna] = 0.0
+        else:
+            df[coluna] = df[coluna].fillna(0.0)
+    
+    # Taxa de Perda de Log (% de horas perdidas vs PPH)
+    df['PerdaLog_Taxa_Daily'] = np.where(
+        df['PPH_Total_Sec'] > 0,
+        df['PerdaLog_Total_Sec'] / df['PPH_Total_Sec'],
+        0.0
+    )
+    
+    # Taxa de Indisponibilidade Sistêmica (TechIssues relativo ao PPH)
+    df['TechIssues_Taxa_Daily'] = np.where(
+        df['PPH_Total_Sec'] > 0,
+        df['TechIssues_Total_Sec_Daily'] / df['PPH_Total_Sec'],
+        0.0
+    )
+    
+    # Percentual de Novatos na Operação (NewHire relativo ao HC)
+    df['NewHire_Pct_Daily'] = np.where(
+        df['HC_Total_PerdaLog_Daily'] > 0,
+        df['NewHire_Qtd_Daily'] / df['HC_Total_PerdaLog_Daily'],
+        0.0
+    )
+    
+    # Taxa de Problemas do Agente (AgentIssues relativo ao PPH)
+    df['AgentIssues_Taxa_Daily'] = np.where(
+        df['PPH_Total_Sec'] > 0,
+        df['AgentIssues_Sec_Daily'] / df['PPH_Total_Sec'],
+        0.0
+    )
+    
     # 2. Lags (Sinais de Fumaça - Evitando Data Leakage do Futuro)
     # Ordenar chronologicamente por operação e canal
     df.sort_values(by=['CodPrograma', 'Canal', 'DataHora'], inplace=True)
@@ -79,6 +126,7 @@ def criar_features(df):
     df['Taxa_Pausa_Gestao_Lag_1'] = df.groupby(['CodPrograma', 'Canal'])['Taxa_Pausa_Gestao'].shift(1).fillna(0.0)
     df['Desvio_HC_Pct_Lag_1'] = df.groupby(['CodPrograma', 'Canal'])['Desvio_HC_Pct'].shift(1).fillna(0.0)
     df['Desvio_Volume_Pct_Lag_1'] = df.groupby(['CodPrograma', 'Canal'])['Desvio_Volume_Pct'].shift(1).fillna(0.0)
+    df['Delta_TMA_Lag_1'] = df.groupby(['CodPrograma', 'Canal'])['Delta_TMA'].shift(1).fillna(0.0)
     
     # Tratar os NaNs gerados pelo Lag do NS_Real (preencher com a média do próprio NS_Real, ou 0 se nulo)
     media_ns = df['NS_Real'].mean()

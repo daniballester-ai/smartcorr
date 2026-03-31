@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Mapeamento do Agrupamento da IA (Inteligência Semântica)
 PILARES = {
     'Volumetria': ['Vol_Previsto', 'Vol_Real', 'Vol_Atendidas', 'Vol_Abandono', 'Delta_Volume', 'Taxa_Abandono_Lag_1', 'Desvio_Volume_Pct_Lag_1'],
-    'Pessoas': ['HC_Previsto', 'HC_Real_Equiv', 'Pausa_Tecnica_Sec', 'Pausa_Pessoal_Sec', 'Pausa_Gestao_Sec', 'Delta_HC', 'Taxa_Pausa_Tecnica_Lag_1', 'Taxa_Pausa_Pessoal_Lag_1', 'Taxa_Pausa_Gestao_Lag_1', 'Taxa_Ocupacao_Lag_1', 'Desvio_HC_Pct_Lag_1'],
+    'Pessoas': ['HC_Previsto', 'HC_Real_Equiv', 'Pausa_Tecnica_Sec', 'Pausa_Pessoal_Sec', 'Pausa_Gestao_Sec', 'Delta_HC', 'Taxa_Pausa_Tecnica_Lag_1', 'Taxa_Pausa_Pessoal_Lag_1', 'Taxa_Pausa_Gestao_Lag_1', 'Taxa_Ocupacao_Lag_1', 'Desvio_HC_Pct_Lag_1', 'PerdaLog_Taxa_Daily', 'TechIssues_Taxa_Daily', 'NewHire_Pct_Daily', 'AgentIssues_Taxa_Daily'],
     'TMA': ['Tempo_AHT_Previsto_Total', 'Tempo_AHT_Real_Total', 'Tempo_Espera_Total', 'Delta_TMA', 'TME_Real_Avg_Lag_1'],
     'Contexto_Lags': ['Hora', 'DiaSemana', 'NS_Lag_1', 'NS_Lag_2', 'NS_Lag_3']
 }
