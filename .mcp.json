@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "sqlserver": {
+      "command": "node",
+      "args": [
+        "./sqlserver-mcp/dist/index.js"
+      ],
+      "env": {
+        "SQLSERVER_HOST": "SPWS-VM-DB81",
+        "SQLSERVER_DATABASE": "OdsCorp",
+        "SQLSERVER_TRUST_SERVER_CERTIFICATE": "true",
+        "SQLSERVER_ENCRYPT": "true"
+      }
+    }
+  }
+}

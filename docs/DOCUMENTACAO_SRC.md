@@ -18,7 +18,7 @@ Resumo das responsabilidades de cada módulo dentro de `src/`:
 ### 2. Pipeline de Dados (Data Pipeline)
 
 * **`data_loading/`**: Responsável por extrair os dados brutos do ODSCorp.
-* **`preprocessing/`**: Executa a limpeza básica e tratamento de nulos.
+* **`data_preprocessing/`**: Executa a limpeza básica e tratamento de nulos.
 * **`feature_engineering/`**: Criação de métricas de negócio, deltas e variáveis temporais (Lags).
 
 ### 3. Pipeline do Modelo (Model Pipeline)

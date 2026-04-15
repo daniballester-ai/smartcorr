@@ -108,11 +108,33 @@ def train(
     # Set up MLflow experiment
     mlflow.set_experiment("ml_regression")
 
-# Set up XGBoost autolog
+    # Set up XGBoost autolog
     mlflow.xgboost.autolog()
 
+    # Setting MLflow if we are running a DVC experiment
+    is_experiment = os.getenv("DVC_EXP_NAME") is not None
+    extra_args = {}
+    if is_experiment:
+        runs = mlflow.search_runs(
+            experiment_ids=[os.getenv("MLFLOW_EXPERIMENT_ID")],
+            filter_string="tags.dvc_exp = 'True'",
+    		    order_by=["start_time DESC"],
+	    )
+	    if runs.empty:
+	        with mlflow.start_run() as parent_run:
+		        mlflow.set_tag("dvc_exp", True)
+		        parent_run_id = parent_run.info.run_id
+	    else:
+		    parent_run_id = runs.iloc[0].run_id
+        run_name = os.getenv("DVC_EXP_NAME")
+        extra_args = {
+            "parent_run_id": parent_run_id,
+            "run_name": run_name,
+            "nested": True,
+        }   
+
     # aqui inicializo o context manager do mlflow
-    with mlflow.start_run() as run:
+    with mlflow.start_run(**extra_args) as run:
         # Log parameters to MLflow (removendo early_stopping_rounds que é tratado internamente)
         params = config_modelo.get("params", {}).copy()
         params.pop("early_stopping_rounds", None)

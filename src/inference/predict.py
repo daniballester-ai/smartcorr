@@ -1,139 +1,222 @@
-import pandas as pd
-import numpy as np
 import logging
 import os
-import yaml
+from typing import Any
+
 import joblib
-from datetime import datetime
+import numpy as np
+import pandas as pd
 import shap
+import yaml
 
 from src.database import get_connection
 
 logger = logging.getLogger(__name__)
 
-# Mapeamento do Agrupamento da IA (Inteligência Semântica)
-PILARES = {
-    'Volumetria': ['Vol_Previsto', 'Vol_Real', 'Vol_Atendidas', 'Vol_Abandono', 'Delta_Volume', 'Taxa_Abandono_Lag_1', 'Desvio_Volume_Pct_Lag_1'],
-    'Pessoas': ['HC_Previsto', 'HC_Real_Equiv', 'Pausa_Tecnica_Sec', 'Pausa_Pessoal_Sec', 'Pausa_Gestao_Sec', 'Delta_HC', 'Taxa_Pausa_Tecnica_Lag_1', 'Taxa_Pausa_Pessoal_Lag_1', 'Taxa_Pausa_Gestao_Lag_1', 'Taxa_Ocupacao_Lag_1', 'Desvio_HC_Pct_Lag_1', 'PerdaLog_Taxa_Daily', 'TechIssues_Taxa_Daily', 'NewHire_Pct_Daily', 'AgentIssues_Taxa_Daily'],
-    'TMA': ['Tempo_AHT_Previsto_Total', 'Tempo_AHT_Real_Total', 'Tempo_Espera_Total', 'Delta_TMA', 'TME_Real_Avg_Lag_1'],
-    'Contexto_Lags': ['Hora', 'DiaSemana', 'NS_Lag_1', 'NS_Lag_2', 'NS_Lag_3']
+PILARES: dict[str, list[str]] = {
+    "Volumetria": [
+        "Vol_Previsto",
+        "Taxa_Abandono_Lag_1",
+        "Desvio_Volume_Pct_Lag_1",
+    ],
+    "Pessoas": [
+        "HC_Previsto",
+        "ABS_Taxa_Daily",
+        "Turnover_Taxa_Daily",
+        "Ferias_Qtd_Daily",
+        "Faltas_Qtd_Daily",
+        "WAHA_Qtd_Daily",
+        "PerdaLog_Taxa_Daily",
+        "TechIssues_Taxa_Daily",
+        "NewHire_Pct_Daily",
+        "AgentIssues_Taxa_Daily",
+    ],
+    "TMA": [
+        "Tempo_AHT_Previsto_Total",
+        "TME_Real_Avg_Lag_1",
+        "Delta_TMA_Lag_1",
+    ],
+    "Causas_Raiz": [
+        "Pressao_Prevista_Vol_HC",
+        "Indicador_Sufoco",
+        "Vol_Por_Agente",
+        "Margem_Capacidade",
+        "Desvio_Escala_Pct",
+        "Razao_Escala",
+        "Taxa_Sobrecarga",
+    ],
+    "Contexto_Temporal": [
+        "Hora",
+        "DiaSemana",
+    ],
 }
 
-def get_pilar(feature_name):
-    """Encontra ao qual pilar analítico uma variável pretence."""
-    for pilar, variaveis in PILARES.items():
-        if feature_name in variaveis:
-            return pilar
-    return 'Geral'
 
-def carregar_configuracao():
+def load_config() -> dict:
+    """Carrega as configurações do arquivo params.yaml.
+
+    Returns:
+        dict: Configurações carregadas
+    """
     with open("params.yaml", "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
-def calcular_explicabilidade_shap(modelo, X):
-    """Gera os pesos do que influenciou (positiva/negativamente) na tomada de decisão preditiva."""
+
+def get_pilar(feature_name: str) -> str:
+    """Retorna o pilar analítico ao qual uma feature pertence.
+
+    Args:
+        feature_name: Nome da feature
+
+    Returns:
+        str: Nome do pilar ou 'Geral' se não encontrada
+    """
+    for pilar, variaveis in PILARES.items():
+        if feature_name in variaveis:
+            return pilar
+    return "Geral"
+
+def calcular_explicabilidade_shap(
+    modelo: Any, X: pd.DataFrame
+) -> np.ndarray:
+    """Gera os valores SHAP para explicabilidade do modelo.
+
+    Args:
+        modelo: Modelo treinado (XGBoost)
+        X: DataFrame com features
+
+    Returns:
+        np.ndarray: Valores SHAP para cada sample e feature
+    """
     explainer = shap.TreeExplainer(modelo)
     shap_values = explainer.shap_values(X)
     return shap_values
 
-def processar_previsoes(df, predicoes, shap_values, features):
-    """Transforma o modelo matemático de árvores em Tuplas relacionais preparadas para o Power BI/Next.js"""
-    resultados = []
-    
-    # Tratamento para garantir acesso à data e intervalo
-    if 'DataRef' not in df.columns:
-        df['DataRef'] = df['DataHora'].astype(str).str[:10]
-    if 'Intervalo' not in df.columns:
-        df['Intervalo'] = df['DataHora'].astype(str).str[11:19]
-    
+
+def processar_previsoes(
+    df: pd.DataFrame,
+    predicoes: np.ndarray,
+    shap_values: np.ndarray,
+    features: list[str],
+) -> list[tuple]:
+    """Transforma predições em tuplas para gravação no banco.
+
+    Args:
+        df: DataFrame com dados originais
+        predicoes: Array de predições do modelo
+        shap_values: Array de valores SHAP
+        features: Lista de nomes das features
+
+    Returns:
+        list[tuple]: Tuplas formatadas para insert no banco
+    """
+    resultados: list[tuple] = []
+
+    if "DataRef" not in df.columns:
+        df["DataRef"] = df["DataHora"].astype(str).str[:10]
+    if "Intervalo" not in df.columns:
+        df["Intervalo"] = df["DataHora"].astype(str).str[11:19]
+
     for i in range(len(df)):
         linha = df.iloc[i]
         valores_shap = shap_values[i]
-        
-        # Agrupamento (Pilares)
+
         impacto_volumetria = 0.0
         impacto_pessoas = 0.0
         impacto_tma = 0.0
+        impacto_causas = 0.0
         impacto_contexto = 0.0
-        
-        feature_impactos = []
-        
+
+        feature_impactos: list[dict[str, Any]] = []
+
         for j, feature in enumerate(features):
             impacto = float(valores_shap[j])
             pilar = get_pilar(feature)
-            
-            # Somatório do Efeito Cascata do Pilar
-            if pilar == 'Volumetria': impacto_volumetria += impacto
-            elif pilar == 'Pessoas': impacto_pessoas += impacto
-            elif pilar == 'TMA': impacto_tma += impacto
-            elif pilar == 'Contexto_Lags': impacto_contexto += impacto
-                
-            feature_impactos.append({'nome': feature, 'pilar': pilar, 'impacto': impacto})
-            
-        # Classificação do Raking: Quem prejudicou? E quem salvou?
-        feature_impactos.sort(key=lambda x: x['impacto']) # Do mais negativo pro mais positivo
-        
-        ofensores = feature_impactos[:3] # Os 3 mais negativos na ponta esquerda
-        impulsionadores = feature_impactos[-3:] # Os 3 mais positivos na ponta direita
-        impulsionadores.reverse() # Inverter para o Top 1 mais forte vir primeiro
-        
-        # Limiar de Sensibilidade: Ignorar "ofensores" que afetaram menos que 0.1% do NS.
-        ofensores = [o if o['impacto'] < -0.001 else None for o in ofensores]
-        impulsionadores = [i if i['impacto'] > 0.001 else None for i in impulsionadores]
-        
-        # Clip da predição pra não jogar 110% no BI caso o XGBoost tenha passado da margem.
+
+            if pilar == "Volumetria":
+                impacto_volumetria += impacto
+            elif pilar == "Pessoas":
+                impacto_pessoas += impacto
+            elif pilar == "TMA":
+                impacto_tma += impacto
+            elif pilar == "Causas_Raiz":
+                impacto_causas += impacto
+            elif pilar == "Contexto_Temporal":
+                impacto_contexto += impacto
+
+            feature_impactos.append({"nome": feature, "pilar": pilar, "impacto": impacto})
+
+        feature_impactos.sort(key=lambda x: x["impacto"])
+
+        ofensores = feature_impactos[:3]
+        impulsionadores = feature_impactos[-3:]
+        impulsionadores.reverse()
+
+        ofensores = [o if o["impacto"] < -0.001 else None for o in ofensores]
+        impulsionadores = [i if i["impacto"] > 0.001 else None for i in impulsionadores]
+
         ns_previsto = min(max(float(predicoes[i]), 0.0), 1.0)
-        
-        # Configuração de Valores Default limpos para o Power BI
+
         def_nome = "Sem Impacto Relevante"
         def_pilar = "N/A"
         def_val = 0.000
-        
-        # Criar Tupla pro `executemany`
-        resultados.append((
-            linha['DataRef'], linha['Intervalo'], int(linha['CodPrograma']), int(linha.get('Canal', 7)),
-            ns_previsto, 
-            int(linha.get('Vol_Previsto', 0)), int(linha.get('HC_Previsto', 0)), float(linha.get('TMA_Previsto_Avg', 0.0)), float(linha.get('NS_Lag_1', 0.0)),
-            
-            impacto_volumetria, impacto_pessoas, impacto_tma, impacto_contexto,
-            
-            # Ofensores 1 a 3
-            ofensores[0]['nome'] if ofensores[0] else def_nome,
-            ofensores[0]['pilar'] if ofensores[0] else def_pilar,
-            ofensores[0]['impacto'] if ofensores[0] else def_val,
-            
-            ofensores[1]['nome'] if ofensores[1] else def_nome,
-            ofensores[1]['pilar'] if ofensores[1] else def_pilar,
-            ofensores[1]['impacto'] if ofensores[1] else def_val,
-            
-            ofensores[2]['nome'] if ofensores[2] else def_nome,
-            ofensores[2]['pilar'] if ofensores[2] else def_pilar,
-            ofensores[2]['impacto'] if ofensores[2] else def_val,
-            
-            # Impulsionadores 1 a 3
-            impulsionadores[0]['nome'] if impulsionadores[0] else def_nome,
-            impulsionadores[0]['pilar'] if impulsionadores[0] else def_pilar,
-            impulsionadores[0]['impacto'] if impulsionadores[0] else def_val,
-            
-            impulsionadores[1]['nome'] if impulsionadores[1] else def_nome,
-            impulsionadores[1]['pilar'] if impulsionadores[1] else def_pilar,
-            impulsionadores[1]['impacto'] if impulsionadores[1] else def_val,
-            
-            impulsionadores[2]['nome'] if impulsionadores[2] else def_nome,
-            impulsionadores[2]['pilar'] if impulsionadores[2] else def_pilar,
-            impulsionadores[2]['impacto'] if impulsionadores[2] else def_val
-        ))
-        
+
+        resultados.append(
+            (
+                linha["DataRef"],
+                linha["Intervalo"],
+                int(linha["CodPrograma"]),
+                int(linha.get("Canal", 7)),
+                ns_previsto,
+                int(linha.get("Vol_Previsto", 0)),
+                int(linha.get("HC_Previsto", 0)),
+                float(linha.get("TMA_Previsto_Avg", 0.0)),
+                float(linha.get("NS_Lag_1", 0.0)),
+                float(linha.get("TME_Real_Avg_Lag_1", 0.0)),
+                float(linha.get("Desvio_Volume_Pct_Lag_1", 0.0)),
+                impacto_volumetria,
+                impacto_pessoas,
+                impacto_tma,
+                impacto_contexto,
+                ofensores[0]["nome"] if ofensores[0] else def_nome,
+                ofensores[0]["pilar"] if ofensores[0] else def_pilar,
+                ofensores[0]["impacto"] if ofensores[0] else def_val,
+                ofensores[1]["nome"] if ofensores[1] else def_nome,
+                ofensores[1]["pilar"] if ofensores[1] else def_pilar,
+                ofensores[1]["impacto"] if ofensores[1] else def_val,
+                ofensores[2]["nome"] if ofensores[2] else def_nome,
+                ofensores[2]["pilar"] if ofensores[2] else def_pilar,
+                ofensores[2]["impacto"] if ofensores[2] else def_val,
+                impulsionadores[0]["nome"] if impulsionadores[0] else def_nome,
+                impulsionadores[0]["pilar"] if impulsionadores[0] else def_pilar,
+                impulsionadores[0]["impacto"] if impulsionadores[0] else def_val,
+                impulsionadores[1]["nome"] if impulsionadores[1] else def_nome,
+                impulsionadores[1]["pilar"] if impulsionadores[1] else def_pilar,
+                impulsionadores[1]["impacto"] if impulsionadores[1] else def_val,
+                impulsionadores[2]["nome"] if impulsionadores[2] else def_nome,
+                impulsionadores[2]["pilar"] if impulsionadores[2] else def_pilar,
+                impulsionadores[2]["impacto"] if impulsionadores[2] else def_val,
+            )
+        )
+
     return resultados
 
-def salvar_no_banco(tuplas_dados):
+def salvar_no_banco(tuplas_dados: list[tuple]) -> None:
+    """Salva tuplas de predição no banco de dados SQL Server.
+
+    Args:
+        tuplas_dados: Lista de tuplas com dados de predição
+
+    Raises:
+        Exception: Se ocorrer erro na transação
+    """
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     query = """
-    INSERT INTO [OdsCorp].[SmartCorr].[FactSmartCorr_Previsao] 
+    INSERT INTO [OdsCorp].[SmartCorr].[FactSmartCorr_Previsao]
     ([DataRef], [Intervalo], [CodPrograma], [Canal], [NS_Previsto_SmartCorr],
      [Vol_Previsto], [HC_Previsto], [TMA_Previsto_Avg], [NS_Lag_1],
+     [TME_Real_Lag_1], [Desvio_Volume_Pct_Lag_1],
      [Impacto_Pilar_Volumetria], [Impacto_Pilar_Pessoas], [Impacto_Pilar_TMA], [Impacto_Pilar_Contexto],
      [Ofensor_1_Nome], [Ofensor_1_Pilar], [Ofensor_1_Impacto],
      [Ofensor_2_Nome], [Ofensor_2_Pilar], [Ofensor_2_Impacto],
@@ -141,27 +224,27 @@ def salvar_no_banco(tuplas_dados):
      [Impulsionador_1_Nome], [Impulsionador_1_Pilar], [Impulsionador_1_Impacto],
      [Impulsionador_2_Nome], [Impulsionador_2_Pilar], [Impulsionador_2_Impacto],
      [Impulsionador_3_Nome], [Impulsionador_3_Pilar], [Impulsionador_3_Impacto])
-    VALUES (?, ?, ?, ?, ?,   ?, ?, ?, ?,   ?, ?, ?, ?,   ?, ?, ?,   ?, ?, ?,   ?, ?, ?,   ?, ?, ?,   ?, ?, ?,   ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
-    
+
     try:
         if tuplas_dados:
-            # Estratégia do Projeto (code.md): Delete + Insert via fast_executemany
-            # Exclusão Cirúrgica "Rolling Forecast": Apaga apenas os registros a partir do menor intervalo calculado
             df_tuplas = pd.DataFrame(tuplas_dados)
-            
-            # Descobre o menor intervalo de cada DataRef (Col 0 = DataRef, Col 1 = Intervalo)
             agrupado = df_tuplas.groupby(0)[1].min().reset_index()
-            
-            logger.info("Limpando previsões antigas (Soft Delete cirúrgico) no BD...")
+
+            logger.info("Limpando previsões antigas (Rolling Forecast) no BD...")
             for _, row in agrupado.iterrows():
                 dt_ref = str(row[0])
                 min_int = str(row[1])
-                query_del = f"DELETE FROM [OdsCorp].[SmartCorr].[FactSmartCorr_Previsao] WHERE [DataRef] = '{dt_ref}' AND [Intervalo] >= '{min_int}'"
+                query_del = f"""DELETE FROM [OdsCorp].[SmartCorr].[FactSmartCorr_Previsao]
+                                WHERE [DataRef] = '{dt_ref}' AND [Intervalo] >= '{min_int}'"""
                 cursor.execute(query_del)
                 logger.info(f"Limpo Data={dt_ref} >= Intervalo {min_int}")
-            
-            logger.info(f"Gravando {len(tuplas_dados)} novos registros SHAP multidimensionais. (fast_executemany=True)")
+
+            logger.info(
+                f"Gravando {len(tuplas_dados)} registros SHAP. "
+                "(fast_executemany=True)"
+            )
             cursor.fast_executemany = True
             cursor.executemany(query, tuplas_dados)
             conn.commit()
@@ -173,43 +256,44 @@ def salvar_no_banco(tuplas_dados):
     finally:
         conn.close()
 
-def main():
-    config = carregar_configuracao()
-    caminho_modelo = config['model']['path']
-    caminho_futuro = config['data']['processed_future_path']
-    features = config['data']['features']
-    
+
+def main() -> None:
+    """Orquestra pipeline de inferência do modelo."""
+    config = load_config()
+    caminho_modelo = config["model"]["path"]
+    caminho_futuro = config["data"]["processed_future_path"]
+    features = config["data"]["features"]
+
     if not os.path.exists(caminho_futuro):
         logger.warning(f"Arquivo {caminho_futuro} ausente. Fim da rotina.")
         return
-        
+
     logger.info("1. Carregando modelo Preditivo Treinado (XGBoost)...")
     modelo = joblib.load(caminho_modelo)
-    
-    logger.info("2. Lendo dados Futuros da Gestão (Forecast vs Capacidade Lags)...")
+
+    logger.info("2. Lendo dados Futuros da Gestão...")
     df_futuro = pd.read_csv(caminho_futuro)
-    
+
     if df_futuro.empty:
         logger.warning("Base do Futuro vazia. Nenhum intervalo projetado hoje.")
         return
-        
+
     X = df_futuro[features]
-    
-    logger.info("3. Iniciando Redes de Árvores (Predição do Nível de Serviço)...")
+
+    logger.info("3. Predição do Nível de Serviço...")
     predicoes = modelo.predict(X)
-    
-    logger.info("4. Acionando SHAP Values (Cálculo Fino da Explicabilidade por Variável)...")
+
+    logger.info("4. SHAP Values para Explicabilidade...")
     shap_values = calcular_explicabilidade_shap(modelo, X)
-    
-    logger.info("5. Pivotando matriz de impacto multidimensional (Separando Ofensores/Pilares)...")
+
+    logger.info("5. Processando impactos por pilar...")
     tuplas_finais = processar_previsoes(df_futuro, predicoes, shap_values, features)
-    
-    # ATENÇÃO: Para habilitar a gravação, a Query DDL criada no passo anterior
-    # deverá estar previamente executada no Microsoft SQL Server.
+
     salvar_no_banco(tuplas_finais)
-    
-    logger.info("Pipeline Finalizado! O BI já pode plugar sua base de forma leve.")
-    
+
+    logger.info("Pipeline Finalizado!")
+
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
     main()

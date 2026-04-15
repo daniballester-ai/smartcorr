@@ -31,8 +31,8 @@ def main():
         load_data.main()
         
         # Limpar nulos/estruturar campos lógicos
-        logger.info("--- Passo 2: Preprocessing ---")
-        from src.preprocessing import clean_data
+        logger.info("--- Passo 2: Data Preprocessing ---")
+        from src.data_preprocessing import clean_data
         clean_data.main()
         
         # Criar as nossas engenharia de features (Lags, Taxas de Fila, Erros)

@@ -91,7 +91,6 @@ def train(
     y: pd.Series,
     config_modelo: dict,
     val_size: float = 0.1,
-    features: list = None,
 ) -> tuple[Any, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
     """Treina o modelo (XGBoost ou Random Forest).
 
@@ -108,21 +107,18 @@ def train(
     # Set up MLflow experiment
     mlflow.set_experiment("ml_regression")
 
-# Set up XGBoost autolog
+    # Set up XGBoost autolog
     mlflow.xgboost.autolog()
 
     # aqui inicializo o context manager do mlflow
-    with mlflow.start_run() as run:
-        # Log parameters to MLflow (removendo early_stopping_rounds que é tratado internamente)
-        params = config_modelo.get("params", {}).copy()
-        params.pop("early_stopping_rounds", None)
+    with mlflow.start_run():
+        # Log parameters to MLflow
         mlflow.log_params(params)
-        mlflow.log_param("val_size", val_size)
-        mlflow.log_param("model_type", config_modelo.get("type", "XGBRegressor"))
+
 
         tipo_modelo = config_modelo.get("type", "RandomForestRegressor")
         parametros = config_modelo.get("params", {}).copy()
-        early_stopping_rounds = parametros.pop("early_stopping_rounds", 15)
+        early_stopping_rounds = parametros.pop("early_stopping_rounds", 10)
 
         if "n_jobs" in parametros:
             parametros["n_jobs"] = int(parametros["n_jobs"])
@@ -156,33 +152,6 @@ def train(
             modelo.fit(X_train, y_train)
         else:
             raise ValueError(f"Tipo de modelo {tipo_modelo} não suportado.")
-
-        predicoes_train = modelo.predict(X_train)
-        predicoes_val = modelo.predict(X_val)
-
-        r2_train = r2_score(y_train, predicoes_train)
-        r2_val = r2_score(y_val, predicoes_val)
-        mse_val = float(mean_squared_error(y_val, predicoes_val))
-        rmse_val = float(np.sqrt(mse_val))
-        mae_val = float(mean_absolute_error(y_val, predicoes_val))
-
-        metrics = {
-            "r2_train": r2_train,
-            "r2_val": r2_val,
-            "mse_val": mse_val,
-            "rmse_val": rmse_val,
-            "mae_val": mae_val,
-        }
-        mlflow.log_metrics(metrics)
-
-        if hasattr(modelo, "feature_importances_"):
-            importancias = dict(zip(features, [float(v) for v in modelo.feature_importances_]))
-            mlflow.log_dict(importancias, "feature_importances.json")
-
-        logger.info(f"R² (Treino): {r2_train:.4f}")
-        logger.info(f"R² (Validação): {r2_val:.4f}")
-        logger.info(f"RMSE (Validação): {rmse_val:.4f}")
-        logger.info(f"MAE (Validação): {mae_val:.4f}")
 
         return modelo, X_train, y_train, X_val, y_val
 
@@ -293,27 +262,44 @@ def main() -> None:
     X, y = load_data(train_path, features, target)
 
     start_time = datetime.now()
-    modelo, X_train, y_train, X_val, y_val = train(X, y, config["model"], val_size=0.1, features=features)
+    modelo, X_train, y_train, X_val, y_val = train(X, y, config["model"], val_size=0.1)
     duracao = (datetime.now() - start_time).total_seconds()
 
-    tipo_utilizado = config["model"].get("type", "XGBRegressor")
+    tipo_utilizado = config["model"].get("type", "RandomForestRegressor")
 
-    # Métricas já foram calculadas e logadas no MLflow dentro da função train()
-    metricas = {"duracao_treino_segundos": duracao}
+    predicoes_train = modelo.predict(X_train)
+    predicoes_val = modelo.predict(X_val)
 
-    experiment = mlflow.get_experiment_by_name("ml_regression")
-    runs = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id], order_by=["start_time DESC"], max_results=1
-    )
-    run_id = runs.iloc[0].run_id
+    r2_train = r2_score(y_train, predicoes_train)
+    r2_val = r2_score(y_val, predicoes_val)
+    mse_val = float(mean_squared_error(y_val, predicoes_val))
+    rmse_val = float(np.sqrt(mse_val))
+    mae_val = float(mean_absolute_error(y_val, predicoes_val))
 
-    with mlflow.start_run(run_id=run_id):
-        mlflow.log_param("train_data_path", train_path)
-        mlflow.log_param("n_features", len(features))
-        mlflow.log_param("n_train_samples", len(X_train))
+    if hasattr(modelo, "feature_importances_"):
+        importancias = dict(
+            zip(features, [float(v) for v in modelo.feature_importances_])
+        )
+        importancias_sorted = dict(
+            sorted(importancias.items(), key=lambda x: x[1], reverse=True)
+        )
+    else:
+        importancias_sorted = {}
 
-    logger.info(f"MLflow Run ID: {run_id}")
-    logger.info(f"MLflow Experiment: {experiment.name}")
+        metricas = {
+            "r2_train": r2_train,
+            "r2_val": r2_val,
+            "mse_val": mse_val,
+            "rmse_val": rmse_val,
+            "mae_val": mae_val,
+            "feature_importances": importancias_sorted,
+        }
+
+        logger.info(f"R² (Treino): {r2_train:.4f}")
+        logger.info(f"R² (Validação): {r2_val:.4f}")
+        logger.info(f"MSE (Validação): {mse_val:.4f}")
+        logger.info(f"RMSE (Validação): {rmse_val:.4f}")
+        logger.info(f"MAE (Validação): {mae_val:.4f}")
 
     save_model(
         modelo,
