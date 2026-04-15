@@ -3,58 +3,54 @@ database:
   database: OdsCorp
   driver: SQL Server
   auth_type: windows # ou 'sql' se for usar user/pass
-  user: null
-  password: null
+  user:
+  password:
 
 data:
+  mode: training  # 'training' ou 'inference'
+  queries_file: config/queries.ini
   raw_path: data/raw/raw_history.csv
   clean_path: data/interim/clean_data.csv
   processed_train_path: data/processed/train_data.csv
+  processed_test_path: data/processed/test_data.csv
   processed_future_path: data/processed/future_data.csv # Dados para predição
-  janela_dias: 120 # Janela de treino em dias
-  data_corte_final: null # Opcional: Data de corte no formato DD/MM/YYYY (ex: '31/01/2026'). Se null, usa data atual.
-  
-  target: NS_Real # Variável Alvo (calculada no preprocessing: Vol_Atendidas_NS_Real / Vol_Real)
+  test_size: 0.2 # Proporção para teste fixo
+  janela_dias: 30 # Janela de treino em dias (modo training)
+  future_days: 7 # Dias futuros para inference
+  data_corte_final:      # Opcional: Data de corte no formato DD/MM/YYYY (ex: '31/01/2026'). Se null, usa data atual.
+  target: NS_Real # Variável Alvo (calculada no data_preprocessing: Vol_Atendidas_NS_Real / Vol_Real)
   features:
     # --- METAS (Dados Disponíveis antes do Fato) ---
-    - Vol_Previsto
-    - HC_Previsto
-    - Tempo_AHT_Previsto_Total
-    
-    # --- CONTEXTO TEMPORAL (Padrões Sazonais) ---
-    - Hora
-    - DiaSemana
-    
-    # --- INDICADORES DE RH / QUALIDADE (Modelo GO!) ---
-    - ABS_Taxa_Daily
-    - Turnover_Taxa_Daily
-    - Ferias_Qtd_Daily
-    - Faltas_Qtd_Daily
-    - WAHA_Qtd_Daily
-    
-    # --- SINAIS DE FUMAÇA (Lags: O que estava acontecendo 30-90 minutos atrás) ---
-    - Taxa_Abandono_Lag_1
-    
-    # --- EFICIÊNCIA, OCUPAÇÃO E DESVIOS (Lags: Imediato Passado D-1) ---
-    - TME_Real_Avg_Lag_1
-    - Taxa_Ocupacao_Lag_1
-    - Taxa_Pausa_Tecnica_Lag_1
-    - Taxa_Pausa_Pessoal_Lag_1
-    - Taxa_Pausa_Gestao_Lag_1
-    - Desvio_HC_Pct_Lag_1
-    - Desvio_Volume_Pct_Lag_1
-    - Delta_TMA_Lag_1
-    
-    # --- FEATURES SINTÉTICAS ---
-    - Pressao_Prevista_Vol_HC
-    - Indicador_Sufoco
-    
-    # --- INDICADORES DE PERDA DE LOG (Diários - Broadcast | Pilar Pessoas) ---
-    - PerdaLog_Taxa_Daily        # % de horas perdidas vs PPH (Gap de Log)
-    - TechIssues_Taxa_Daily      # Taxa de indisponibilidade sistêmica
-    - NewHire_Pct_Daily          # % de novatos na operação
-    - AgentIssues_Taxa_Daily     # Taxa de problemas do agente
-
+  - Vol_Previsto
+  - HC_Previsto
+  - Tempo_AHT_Previsto_Total
+  - Hora
+  - DiaSemana
+  - ABS_Taxa_Daily
+  - Turnover_Taxa_Daily
+  - Ferias_Qtd_Daily
+  - Faltas_Qtd_Daily
+  - WAHA_Qtd_Daily
+  - Taxa_Abandono_Lag_1
+  - TME_Real_Avg_Lag_1
+  - Taxa_Ocupacao_Lag_1
+  - Taxa_Pausa_Tecnica_Lag_1
+  - Taxa_Pausa_Pessoal_Lag_1
+  - Taxa_Pausa_Gestao_Lag_1
+  - Desvio_HC_Pct_Lag_1
+  - Desvio_Volume_Pct_Lag_1
+  - Delta_TMA_Lag_1
+  - Pressao_Prevista_Vol_HC
+  - Indicador_Sufoco
+  - Vol_Por_Agente
+  - Margem_Capacidade
+  - Desvio_Escala_Pct
+  - Razao_Escala
+  - Taxa_Sobrecarga
+  - PerdaLog_Taxa_Daily
+  - TechIssues_Taxa_Daily
+  - NewHire_Pct_Daily
+  - AgentIssues_Taxa_Daily
 model:
   path: models/model.pkl
   metrics_path: metrics/train_metrics.json
@@ -63,15 +59,16 @@ model:
     sample_threshold: 500000
     sample_frac: 0.2
   params:
-    n_estimators: 100
-    max_depth: 3
-    learning_rate: 0.1
-    alpha: 5
-    reg_lambda: 5
-    colsample_bytree: 0.8
-    subsample: 0.8
+    n_estimators: 150
+    max_depth: 12              # Aumentado para capturar mais padrões
+    learning_rate: 0.05
+    alpha: 1                   # Reduzido para menos regularização
+    reg_lambda: 1              # Reduzido para menos regularização
+    colsample_bytree: 0.6      # Reduzido para mais aleatoriedade
+    subsample: 0.6             # Reduzido para mais aleatoriedade
     random_state: 42
     n_jobs: -1
+    early_stopping_rounds: 15
 
 inference:
   output_path: data/processed/predictions.csv

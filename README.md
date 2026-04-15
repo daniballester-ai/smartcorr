@@ -16,7 +16,7 @@ O projeto segue rigorosos padrões de **MLOps** para garantir escalabilidade, ma
 SmartCorr/
 ├── src/
 │   ├── data_loading/         # Extração bruta do SQL Server para a pasta data/raw
-│   ├── preprocessing/        # Limpeza, tratamentos nulos
+│   ├── data_preprocessing/   # Limpeza, tratamentos nulos
 │   ├── feature_engineering/  # Criação de Lags, Deltas e Taxas GO!
 │   ├── model_training/       # Algoritmos XGBoost com hiperparâmetros
 │   ├── model_evaluation/     # Cálculo do Boletim da I.A. (R², MSE, MAE)

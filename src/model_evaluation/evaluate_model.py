@@ -1,78 +1,153 @@
-import pandas as pd
+import json
 import logging
 import os
-import yaml
-import json
+from typing import Any
+
 import joblib
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.model_selection import train_test_split
+import pandas as pd
+import yaml
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 logger = logging.getLogger(__name__)
 
-def load_config():
+
+def load_config() -> dict:
+    """Carrega as configurações do arquivo params.yaml.
+
+    Returns:
+        dict: Configurações carregadas do arquivo params.yaml
+    """
     with open("params.yaml", "r") as f:
         return yaml.safe_load(f)
 
-def avaliar_modelo(modelo, X_teste, y_teste):
-    """
-    Avalia o modelo nos dados de teste e retorna métricas.
-    """
-    y_predito = modelo.predict(X_teste)
-    
-    metricas = {
-        "r2_score": r2_score(y_teste, y_predito),
-        "mse": mean_squared_error(y_teste, y_predito),
-        "mae": mean_absolute_error(y_teste, y_predito),
-        "n_amostras_teste": len(y_teste)
-    }
-    
-    return metricas
 
-def main():
-    config = load_config()
-    caminho_modelo = config['model']['path']
-    caminho_treino = config['data']['processed_train_path']
-    caminho_metricas = config['model']['metrics_path'].replace('train_metrics', 'evaluation')
+def load_model(model_path: str) -> Any:
+    """Carrega modelo treinado do disco.
+
+    Args:
+        model_path: Caminho para o arquivo .pkl
+
+    Returns:
+        Modelo carregado
+
+    Raises:
+        FileNotFoundError: Se modelo não existir
+    """
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Modelo não encontrado: {model_path}")
     
-    features = config['data']['features']
-    target = config['data']['target']
+    logger.info(f"Carregando modelo de: {model_path}")
+    return joblib.load(model_path)
+
+
+def load_test_data(test_path: str, features: list, target: str) -> tuple[pd.DataFrame, pd.Series]:
+    """Carrega dados de teste separados.
+
+    Args:
+        test_path: Caminho para CSV de teste
+        features: Lista de features
+        target: Nome do target
+
+    Returns:
+        tuple: (X_test, y_test)
+
+    Raises:
+        FileNotFoundError: Se arquivo não existir
+        ValueError: Se colunas estiverem faltando
+    """
+    if not os.path.exists(test_path):
+        raise FileNotFoundError(
+            f"Dados de teste não encontrados: {test_path}. "
+            "Execute feature_engineering primeiro."
+        )
     
-    os.makedirs(os.path.dirname(caminho_metricas), exist_ok=True)
-    
-    # Carrega modelo
-    logger.info(f"Carregando modelo de: {caminho_modelo}")
-    if not os.path.exists(caminho_modelo):
-        logger.error("Modelo não encontrado. Execute o treinamento primeiro.")
-        return
-        
-    modelo = joblib.load(caminho_modelo)
-    
-    # Carrega dados de treino para split de teste
-    # Idealmente teríamos um test_processed.csv separado, mas vamos simular aqui
-    logger.info(f"Carregando dados de: {caminho_treino}")
-    df = pd.read_csv(caminho_treino)
-    
-    # Validação de colunas
+    logger.info(f"Carregando dados de teste de: {test_path}")
+    df = pd.read_csv(test_path)
+
     colunas_faltantes = [col for col in features + [target] if col not in df.columns]
     if colunas_faltantes:
         raise ValueError(f"Colunas ausentes: {colunas_faltantes}")
-    
-    X = df[features]
-    y = df[target]
-    
-    # Split holdout para avaliação (20% dos dados)
-    _, X_teste, _, y_teste = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    # Avaliação
-    logger.info("Avaliando modelo...")
-    metricas = avaliar_modelo(modelo, X_teste, y_teste)
-    
-    logger.info(f"Métricas de Avaliação: R²={metricas['r2_score']:.4f}, MSE={metricas['mse']:.6f}, MAE={metricas['mae']:.6f}")
-    
-    # Salva métricas
-    with open(caminho_metricas, 'w') as f:
+
+    X_test = df[features]
+    y_test = df[target]
+
+    logger.info(f"Dados de teste: {len(X_test)} amostras")
+    return X_test, y_test
+
+
+def evaluate(modelo: Any, X_test: pd.DataFrame, y_test: pd.Series, features: list) -> dict:
+    """Avalia modelo no dataset de teste.
+
+    Args:
+        modelo: Modelo treinado
+        X_test: Features de teste
+        y_test: Target de teste
+        features: Lista de features para importâncias
+
+    Returns:
+        dict: Métricas de avaliação
+    """
+    y_predito = modelo.predict(X_test)
+
+    metricas = {
+        "r2_score": r2_score(y_test, y_predito),
+        "rmse": float(mean_squared_error(y_test, y_predito) ** 0.5),
+        "mse": mean_squared_error(y_test, y_predito),
+        "mae": mean_absolute_error(y_test, y_predito),
+        "n_amostras_teste": len(X_test),
+    }
+
+    if hasattr(modelo, "feature_importances_"):
+        importancias = dict(
+            zip(features, [float(v) for v in modelo.feature_importances_])
+        )
+        importancias_sorted = dict(
+            sorted(importancias.items(), key=lambda x: x[1], reverse=True)
+        )
+        metricas["feature_importances"] = importancias_sorted
+
+    logger.info(
+        f"Métricas: R²={metricas['r2_score']:.4f}, "
+        f"RMSE={metricas['rmse']:.4f}, MAE={metricas['mae']:.4f}"
+    )
+
+    return metricas
+
+
+def save_metrics(metricas: dict, metrics_path: str) -> str:
+    """Salva métricas em arquivo JSON.
+
+    Args:
+        metricas: Métricas calculadas
+        metrics_path: Caminho para salvar
+
+    Returns:
+        str: Caminho onde foi salvo
+    """
+    os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
+
+    with open(metrics_path, "w") as f:
         json.dump(metricas, f, indent=4)
-    logger.info(f"Métricas salvas em: {caminho_metricas}")
+    logger.info(f"Métricas salvas em: {metrics_path}")
+
+    return metrics_path
+
+
+def main() -> None:
+    """Orquestra pipeline de avaliação do modelo."""
+    config = load_config()
+
+    model_path = config["model"]["path"]
+    test_path = config["data"]["processed_test_path"]
+    metrics_path = config["model"]["metrics_path"].replace("train_metrics", "evaluation")
+    features = config["data"]["features"]
+    target = config["data"]["target"]
+
+    modelo = load_model(model_path)
+    X_test, y_test = load_test_data(test_path, features, target)
+    metricas = evaluate(modelo, X_test, y_test, features)
+    save_metrics(metricas, metrics_path)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

@@ -1,4 +1,7 @@
+SmartCorr.egg-info
+
 # Ambientes Virtuais (VENV)
+.venv/
 venv/
 .env/
 env/
@@ -27,3 +30,10 @@ credencial.py
 # Logs
 logs/
 *.log
+
+# MLflow
+mlruns/
+
+# Project
+.env
+
