@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 PILARES: dict[str, list[str]] = {
     "Volumetria": [
         "Vol_Previsto",
-        "Taxa_Abandono_Lag_1",
         "Desvio_Volume_Pct_Lag_1",
     ],
     "Pessoas": [
@@ -24,9 +23,7 @@ PILARES: dict[str, list[str]] = {
         "Turnover_Taxa_Daily",
         "Ferias_Qtd_Daily",
         "Faltas_Qtd_Daily",
-        "WAHA_Qtd_Daily",
         "PerdaLog_Taxa_Daily",
-        "TechIssues_Taxa_Daily",
         "NewHire_Pct_Daily",
         "AgentIssues_Taxa_Daily",
     ],
@@ -40,13 +37,16 @@ PILARES: dict[str, list[str]] = {
         "Indicador_Sufoco",
         "Vol_Por_Agente",
         "Margem_Capacidade",
-        "Desvio_Escala_Pct",
-        "Razao_Escala",
-        "Taxa_Sobrecarga",
     ],
     "Contexto_Temporal": [
         "Hora",
         "DiaSemana",
+        "NS_Media_Movel_3",
+        "NS_Media_Movel_6",
+        "NS_Std_Movel_6",
+    ],
+    "Contexto_Operacional": [
+        "Programa_Target_Enc",
     ],
 }
 
@@ -117,86 +117,72 @@ def processar_previsoes(
         df["Intervalo"] = df["DataHora"].astype(str).str[11:19]
 
     for i in range(len(df)):
-        linha = df.iloc[i]
-        valores_shap = shap_values[i]
+        linha = df.iloc(i) if hasattr(df, 'iloc') else df.iloc[i]
+        valores_shap = dict(zip(features, shap_values[i]))
+        
+        # 5. Agregação por Pilares (para BI) conforme Architecture Plan
+        impacto_volumetria = sum(valores_shap.get(f, 0) for f in PILARES['Volumetria'])
+        impacto_pessoas = sum(valores_shap.get(f, 0) for f in PILARES['Pessoas'])
+        impacto_tma = sum(valores_shap.get(f, 0) for f in PILARES['TMA'])
+        impacto_causas = sum(valores_shap.get(f, 0) for f in PILARES['Causas_Raiz'])
+        
+        # Une pilares de contexto (Temporal + Operacional)
+        impacto_contexto = sum(valores_shap.get(f, 0) for f in PILARES['Contexto_Temporal'])
+        impacto_contexto += sum(valores_shap.get(f, 0) for f in PILARES['Contexto_Operacional'])
 
-        impacto_volumetria = 0.0
-        impacto_pessoas = 0.0
-        impacto_tma = 0.0
-        impacto_causas = 0.0
-        impacto_contexto = 0.0
+        # 6. Identificar Principais Ofensores e Impulsionadores (SHAP Top 3)
+        # Mapeamento para saber de qual pilar é a feature
+        feat_para_pilar = {}
+        for p, feats in PILARES.items():
+            for f in feats:
+                feat_para_pilar[f] = p
 
-        feature_impactos: list[dict[str, Any]] = []
+        sorted_items = sorted(valores_shap.items(), key=lambda x: abs(x[1]), reverse=True)
+        ofensores = []
+        impulsionadores = []
+        
+        for feat, val in sorted_items:
+            pilar_desc = feat_para_pilar.get(feat, "Outros")
+            if val < -0.001: # Ofensor (Impacto negativo no NS)
+                if len(ofensores) < 3:
+                    ofensores.append({"nome": feat, "pilar": pilar_desc, "impacto": val})
+            elif val > 0.001: # Impulsionador (Impacto positivo no NS)
+                if len(impulsionadores) < 3:
+                    impulsionadores.append({"nome": feat, "pilar": pilar_desc, "impacto": val})
 
-        for j, feature in enumerate(features):
-            impacto = float(valores_shap[j])
-            pilar = get_pilar(feature)
-
-            if pilar == "Volumetria":
-                impacto_volumetria += impacto
-            elif pilar == "Pessoas":
-                impacto_pessoas += impacto
-            elif pilar == "TMA":
-                impacto_tma += impacto
-            elif pilar == "Causas_Raiz":
-                impacto_causas += impacto
-            elif pilar == "Contexto_Temporal":
-                impacto_contexto += impacto
-
-            feature_impactos.append({"nome": feature, "pilar": pilar, "impacto": impacto})
-
-        feature_impactos.sort(key=lambda x: x["impacto"])
-
-        ofensores = feature_impactos[:3]
-        impulsionadores = feature_impactos[-3:]
-        impulsionadores.reverse()
-
-        ofensores = [o if o["impacto"] < -0.001 else None for o in ofensores]
-        impulsionadores = [i if i["impacto"] > 0.001 else None for i in impulsionadores]
+        # Preenche vazios se necessário
+        while len(ofensores) < 3: 
+            ofensores.append({"nome": "Sem Impacto Relevante", "pilar": "N/A", "impacto": 0.0})
+        while len(impulsionadores) < 3: 
+            impulsionadores.append({"nome": "Sem Impacto Relevante", "pilar": "N/A", "impacto": 0.0})
 
         ns_previsto = min(max(float(predicoes[i]), 0.0), 1.0)
 
-        def_nome = "Sem Impacto Relevante"
-        def_pilar = "N/A"
-        def_val = 0.000
-
-        resultados.append(
-            (
-                linha["DataRef"],
-                linha["Intervalo"],
-                int(linha["CodPrograma"]),
-                int(linha.get("Canal", 7)),
-                ns_previsto,
-                int(linha.get("Vol_Previsto", 0)),
-                int(linha.get("HC_Previsto", 0)),
-                float(linha.get("TMA_Previsto_Avg", 0.0)),
-                float(linha.get("NS_Lag_1", 0.0)),
-                float(linha.get("TME_Real_Avg_Lag_1", 0.0)),
-                float(linha.get("Desvio_Volume_Pct_Lag_1", 0.0)),
-                impacto_volumetria,
-                impacto_pessoas,
-                impacto_tma,
-                impacto_contexto,
-                ofensores[0]["nome"] if ofensores[0] else def_nome,
-                ofensores[0]["pilar"] if ofensores[0] else def_pilar,
-                ofensores[0]["impacto"] if ofensores[0] else def_val,
-                ofensores[1]["nome"] if ofensores[1] else def_nome,
-                ofensores[1]["pilar"] if ofensores[1] else def_pilar,
-                ofensores[1]["impacto"] if ofensores[1] else def_val,
-                ofensores[2]["nome"] if ofensores[2] else def_nome,
-                ofensores[2]["pilar"] if ofensores[2] else def_pilar,
-                ofensores[2]["impacto"] if ofensores[2] else def_val,
-                impulsionadores[0]["nome"] if impulsionadores[0] else def_nome,
-                impulsionadores[0]["pilar"] if impulsionadores[0] else def_pilar,
-                impulsionadores[0]["impacto"] if impulsionadores[0] else def_val,
-                impulsionadores[1]["nome"] if impulsionadores[1] else def_nome,
-                impulsionadores[1]["pilar"] if impulsionadores[1] else def_pilar,
-                impulsionadores[1]["impacto"] if impulsionadores[1] else def_val,
-                impulsionadores[2]["nome"] if impulsionadores[2] else def_nome,
-                impulsionadores[2]["pilar"] if impulsionadores[2] else def_pilar,
-                impulsionadores[2]["impacto"] if impulsionadores[2] else def_val,
-            )
-        )
+        # Adiciona à lista de gravação (tupla com 34 elementos)
+        resultados.append((
+            linha["DataRef"],
+            linha["Intervalo"],
+            int(linha["CodPrograma"]),
+            int(linha.get("Canal", 7)),
+            ns_previsto,
+            int(linha.get("Vol_Previsto", 0)),
+            int(linha.get("HC_Previsto", 0)),
+            float(linha.get("TMA_Previsto_Avg", 0.0)),
+            float(linha.get("NS_Lag_1", 0.0)),
+            float(linha.get("TME_Real_Avg_Lag_1", 0.0)),
+            float(linha.get("Desvio_Volume_Pct_Lag_1", 0.0)),
+            impacto_volumetria,
+            impacto_pessoas,
+            impacto_tma,
+            impacto_causas,
+            impacto_contexto,
+            ofensores[0]["nome"], ofensores[0]["pilar"], ofensores[0]["impacto"],
+            ofensores[1]["nome"], ofensores[1]["pilar"], ofensores[1]["impacto"],
+            ofensores[2]["nome"], ofensores[2]["pilar"], ofensores[2]["impacto"],
+            impulsionadores[0]["nome"], impulsionadores[0]["pilar"], impulsionadores[0]["impacto"],
+            impulsionadores[1]["nome"], impulsionadores[1]["pilar"], impulsionadores[1]["impacto"],
+            impulsionadores[2]["nome"], impulsionadores[2]["pilar"], impulsionadores[2]["impacto"]
+        ))
 
     return resultados
 
@@ -217,14 +203,14 @@ def salvar_no_banco(tuplas_dados: list[tuple]) -> None:
     ([DataRef], [Intervalo], [CodPrograma], [Canal], [NS_Previsto_SmartCorr],
      [Vol_Previsto], [HC_Previsto], [TMA_Previsto_Avg], [NS_Lag_1],
      [TME_Real_Lag_1], [Desvio_Volume_Pct_Lag_1],
-     [Impacto_Pilar_Volumetria], [Impacto_Pilar_Pessoas], [Impacto_Pilar_TMA], [Impacto_Pilar_Contexto],
+     [Impacto_Pilar_Volumetria], [Impacto_Pilar_Pessoas], [Impacto_Pilar_TMA], [Impacto_Pilar_Causas], [Impacto_Pilar_Contexto],
      [Ofensor_1_Nome], [Ofensor_1_Pilar], [Ofensor_1_Impacto],
      [Ofensor_2_Nome], [Ofensor_2_Pilar], [Ofensor_2_Impacto],
      [Ofensor_3_Nome], [Ofensor_3_Pilar], [Ofensor_3_Impacto],
      [Impulsionador_1_Nome], [Impulsionador_1_Pilar], [Impulsionador_1_Impacto],
      [Impulsionador_2_Nome], [Impulsionador_2_Pilar], [Impulsionador_2_Impacto],
      [Impulsionador_3_Nome], [Impulsionador_3_Pilar], [Impulsionador_3_Impacto])
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     try:

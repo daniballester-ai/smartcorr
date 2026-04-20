@@ -85,6 +85,57 @@ def _filter_relevant_intervals(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtered
 
 
+def _filter_operacional(
+    df: pd.DataFrame,
+    config_filtro: dict,
+) -> pd.DataFrame:
+    """Filtra intervalos sem operação real para evitar viés no treino.
+
+    PROBLEMA RESOLVIDO: 59% dos dados de treino tinham NS_Real == 0 porque
+    Vol_Real == 0 (sem chamadas reais naquele intervalo). Isso fazia o modelo
+    aprender milhares de "não-eventos" que distorciam as predições.
+
+    Esta função marca os registros como operacionais ou não, e remove
+    os não-operacionais do set de treino. Para inferência, mantém todos.
+
+    Args:
+        df: DataFrame com coluna Vol_Real
+        config_filtro: Configuração do filtro operacional do params.yaml
+
+    Returns:
+        pd.DataFrame: DataFrame com coluna 'eh_operacional' e registros
+                       não-operacionais removidos (se modo treino)
+    """
+    if not config_filtro.get("ativo", True):
+        logger.info("Filtro operacional DESATIVADO.")
+        df["eh_operacional"] = True
+        return df
+
+    vol_minimo = config_filtro.get("vol_minimo_operacional", 1)
+
+    # Marca como operacional se Vol_Real >= vol_minimo
+    df["eh_operacional"] = df["Vol_Real"] >= vol_minimo
+
+    registros_nao_operacionais = (~df["eh_operacional"]).sum()
+    total_registros = len(df)
+    pct_nao_operacional = (registros_nao_operacionais / total_registros * 100) if total_registros > 0 else 0
+
+    logger.info(
+        f"Filtro operacional: {registros_nao_operacionais}/{total_registros} "
+        f"({pct_nao_operacional:.1f}%) intervalos SEM operação real (Vol_Real < {vol_minimo})"
+    )
+
+    # Remove não-operacionais do treino
+    df_operacional = df[df["eh_operacional"]].copy()
+
+    logger.info(
+        f"Registros operacionais mantidos: {len(df_operacional)} "
+        f"({len(df_operacional)/total_registros*100:.1f}%)"
+    )
+
+    return df_operacional
+
+
 def _calculate_target(df: pd.DataFrame, target_col: str = "NS_Real") -> pd.DataFrame:
     """Calcula o Nível de Serviço Real.
 
@@ -124,29 +175,48 @@ def _fill_missing_values(df: pd.DataFrame, fill_value: float = 0.0) -> pd.DataFr
     return df
 
 
-def clean(df: pd.DataFrame) -> pd.DataFrame:
+def clean(df: pd.DataFrame, config: Optional[dict] = None) -> pd.DataFrame:
     """Executa pipeline completo de limpeza e preparação dos dados.
 
     Etapas:
         1. Parsing de DataHora (DataRef + Intervalo)
         2. Extração de features temporais (Hora, DiaSemana)
-        3. Filtragem de intervalos relevantes
+        3. Filtragem de intervalos relevantes (turnos fechados)
         4. Cálculo do target (NS_Real)
-        5. Preenchimento de valores nulos
+        5. Filtragem operacional (remove NS=0 por falta de operação)
+        6. Preenchimento de valores nulos
 
     Args:
         df: DataFrame com dados brutos do load_data
+        config: Configuração do params.yaml (se None, carrega automaticamente)
 
     Returns:
         pd.DataFrame: DataFrame limpo e preparado
     """
+    if config is None:
+        config = load_config()
+
+    config_filtro = config["data"].get("filtro_operacional", {"ativo": True, "vol_minimo_operacional": 1})
+
     logger.info(f"Linhas antes da limpeza: {len(df)}")
 
     df = _parse_datetime(df)
     df = _create_temporal_features(df)
     df = _filter_relevant_intervals(df)
     df = _calculate_target(df)
+    df = _filter_operacional(df, config_filtro)
     df = _fill_missing_values(df)
+
+    # Log da distribuição do target após limpeza
+    if "NS_Real" in df.columns:
+        ns = df["NS_Real"]
+        logger.info(
+            f"Distribuição NS_Real pós-limpeza: "
+            f"mean={ns.mean():.3f}, "
+            f"==0: {(ns == 0).sum()} ({(ns == 0).mean()*100:.1f}%), "
+            f"==1: {(ns == 1).sum()} ({(ns == 1).mean()*100:.1f}%), "
+            f"entre 0 e 1: {((ns > 0) & (ns < 1)).sum()} ({((ns > 0) & (ns < 1)).mean()*100:.1f}%)"
+        )
 
     logger.info(f"Linhas após limpeza: {len(df)}")
     return df
@@ -176,10 +246,10 @@ def main() -> None:
     clean_path = config["data"]["clean_path"]
 
     df_raw = pd.read_csv(raw_path)
-    df_clean = clean(df_raw)
+    df_clean = clean(df_raw, config)
     save_data(df_clean, clean_path)
 
- 
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     main()

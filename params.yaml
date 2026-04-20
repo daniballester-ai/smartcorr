@@ -15,42 +15,89 @@ data:
   processed_test_path: data/processed/test_data.csv
   processed_future_path: data/processed/future_data.csv # Dados para predição
   test_size: 0.2 # Proporção para teste fixo
-  janela_dias: 30 # Janela de treino em dias (modo training)
+  janela_dias: 90 # Janela de treino em dias (aumentado de 30 para capturar sazonalidade mensal)
   future_days: 7 # Dias futuros para inference
   data_corte_final:      # Opcional: Data de corte no formato DD/MM/YYYY (ex: '31/01/2026'). Se null, usa data atual.
   target: NS_Real # Variável Alvo (calculada no data_preprocessing: Vol_Atendidas_NS_Real / Vol_Real)
+
+  # --- Programas Ativos ---
+  # Lista dinâmica de CodPrograma. Para escalar a novos clientes/operações,
+  # basta adicionar os códigos aqui. Nenhum código precisa mudar.
+  programas:
+    - 366845
+    - 370587
+    - 370588
+    - 548619
+    - 581345
+    - 581346
+    - 589266
+    - 589360
+    - 589361
+    - 591529
+    - 347851
+    - 347858
+    - 353059
+    - 355491
+    - 355492
+
+  # Canal de atendimento (7 = Voz). Para multi-canal, transformar em lista.
+  canal: 7
+
+  # --- Filtro Operacional ---
+  # Remove intervalos sem operação real do treino para evitar viés.
+  # 'vol_minimo_operacional' = volume mínimo para considerar que houve operação.
+  filtro_operacional:
+    ativo: true
+    vol_minimo_operacional: 1 # Se Vol_Real >= 1, considera operacional
+
+  # --- Target Encoding ---
+  # Arquivo onde o mapeamento de CodPrograma -> encoding é salvo para uso na inferência.
+  target_encoding_path: models/target_encoding.json
+
   features:
     # --- METAS (Dados Disponíveis antes do Fato) ---
-  - Vol_Previsto
-  - HC_Previsto
-  - Tempo_AHT_Previsto_Total
-  - Hora
-  - DiaSemana
-  - ABS_Taxa_Daily
-  - Turnover_Taxa_Daily
-  - Ferias_Qtd_Daily
-  - Faltas_Qtd_Daily
-  - WAHA_Qtd_Daily
-  - Taxa_Abandono_Lag_1
-  - TME_Real_Avg_Lag_1
-  - Taxa_Ocupacao_Lag_1
-  - Taxa_Pausa_Tecnica_Lag_1
-  - Taxa_Pausa_Pessoal_Lag_1
-  - Taxa_Pausa_Gestao_Lag_1
-  - Desvio_HC_Pct_Lag_1
-  - Desvio_Volume_Pct_Lag_1
-  - Delta_TMA_Lag_1
-  - Pressao_Prevista_Vol_HC
-  - Indicador_Sufoco
-  - Vol_Por_Agente
-  - Margem_Capacidade
-  - Desvio_Escala_Pct
-  - Razao_Escala
-  - Taxa_Sobrecarga
-  - PerdaLog_Taxa_Daily
-  - TechIssues_Taxa_Daily
-  - NewHire_Pct_Daily
-  - AgentIssues_Taxa_Daily
+    - Vol_Previsto
+    - HC_Previsto
+    - Tempo_AHT_Previsto_Total
+    - Hora
+    - DiaSemana
+    - ABS_Taxa_Daily
+    - Turnover_Taxa_Daily
+    - Ferias_Qtd_Daily
+    - Faltas_Qtd_Daily
+    # --- LAGS (Dados Reais do Intervalo Anterior - shift=1) ---
+    - TME_Real_Avg_Lag_1
+    - Desvio_Volume_Pct_Lag_1
+    - Delta_TMA_Lag_1
+    # --- FEATURES SINTÉTICAS (calculadas a partir de dados previstos) ---
+    - Pressao_Prevista_Vol_HC
+    - Indicador_Sufoco
+    - Vol_Por_Agente
+    - Margem_Capacidade
+    # --- PERDA DE LOG (Pilar Pessoas) ---
+    - PerdaLog_Taxa_Daily
+    - NewHire_Pct_Daily
+    - AgentIssues_Taxa_Daily
+    # --- ROLLING (Memória temporal de NS) ---
+    - NS_Media_Movel_3
+    - NS_Media_Movel_6
+    - NS_Std_Movel_6
+    # --- ENCODING DINÂMICO (Escalável para novos clientes) ---
+    - Programa_Target_Enc
+
+  # Features removidas por zero variância / dados indisponíveis:
+  # - WAHA_Qtd_Daily (100% zeros)
+  # - Taxa_Ocupacao_Lag_1 (100% zeros - HC_Real_Equiv indisponível)
+  # - Taxa_Pausa_Tecnica_Lag_1 (100% zeros - HC_Real_Equiv indisponível)
+  # - Taxa_Pausa_Pessoal_Lag_1 (100% zeros - HC_Real_Equiv indisponível)
+  # - Taxa_Pausa_Gestao_Lag_1 (100% zeros - HC_Real_Equiv indisponível)
+  # - Desvio_HC_Pct_Lag_1 (mean=-0.998, constante)
+  # - Desvio_Escala_Pct (depende de HC_Real_Equiv, constante)
+  # - Razao_Escala (100% zeros)
+  # - Taxa_Sobrecarga (100% zeros)
+  # - TechIssues_Taxa_Daily (99.4% zeros)
+  # - Taxa_Abandono_Lag_1 (97% zeros)
+
 model:
   path: models/model.pkl
   metrics_path: metrics/train_metrics.json
@@ -59,16 +106,17 @@ model:
     sample_threshold: 500000
     sample_frac: 0.2
   params:
-    n_estimators: 150
-    max_depth: 12              # Aumentado para capturar mais padrões
-    learning_rate: 0.05
-    alpha: 1                   # Reduzido para menos regularização
-    reg_lambda: 1              # Reduzido para menos regularização
-    colsample_bytree: 0.6      # Reduzido para mais aleatoriedade
-    subsample: 0.6             # Reduzido para mais aleatoriedade
+    n_estimators: 300       # Aumentado (early stopping controla)
+    max_depth: 8            # Reduzido de 12 para evitar overfitting em menos features
+    learning_rate: 0.03     # Mais conservador para melhor generalização
+    alpha: 1
+    reg_lambda: 2           # Mais regularização
+    colsample_bytree: 0.7
+    subsample: 0.7
+    min_child_weight: 5     # Adicionado para evitar splits em poucos registros
     random_state: 42
     n_jobs: -1
-    early_stopping_rounds: 15
+    early_stopping_rounds: 25 # Aumentado para learning_rate menor
 
 inference:
   output_path: data/processed/predictions.csv
