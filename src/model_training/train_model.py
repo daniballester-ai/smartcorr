@@ -65,6 +65,40 @@ def load_data(train_path: str, features: list, target: str) -> tuple[pd.DataFram
     return X, y
 
 
+def _log_diagnostico_target(y: pd.Series) -> None:
+    """Loga diagnóstico da distribuição do target para monitoramento.
+
+    Args:
+        y: Series com valores do target
+    """
+    total = len(y)
+    n_zero = (y == 0).sum()
+    n_um = (y == 1).sum()
+    n_entre = ((y > 0) & (y < 1)).sum()
+
+    logger.info(
+        f"Distribuição NS_Real no treino: "
+        f"total={total}, "
+        f"==0: {n_zero} ({n_zero/total*100:.1f}%), "
+        f"==1: {n_um} ({n_um/total*100:.1f}%), "
+        f"entre: {n_entre} ({n_entre/total*100:.1f}%)"
+    )
+
+    # Alertas de qualidade
+    if n_zero / total > 0.30:
+        logger.warning(
+            f"ALERTA: {n_zero/total*100:.0f}% dos registros têm NS_Real=0. "
+            "Verifique se o filtro operacional está ativo em params.yaml. "
+            "Intervalos sem operação real distorcem o modelo."
+        )
+
+    if total < 1000:
+        logger.warning(
+            f"ALERTA: Apenas {total} registros de treino. "
+            "Considere aumentar janela_dias em params.yaml."
+        )
+
+
 def prepare_data(
     X: pd.DataFrame,
     y: pd.Series,
@@ -108,7 +142,7 @@ def train(
     # Set up MLflow experiment
     mlflow.set_experiment("ml_regression")
 
-# Set up XGBoost autolog
+    # Set up XGBoost autolog
     mlflow.xgboost.autolog()
 
     # aqui inicializo o context manager do mlflow
@@ -179,6 +213,12 @@ def train(
             importancias = dict(zip(features, [float(v) for v in modelo.feature_importances_]))
             mlflow.log_dict(importancias, "feature_importances.json")
 
+            # Log top 10 features
+            top_features = sorted(importancias.items(), key=lambda x: x[1], reverse=True)[:10]
+            logger.info("Top 10 features por importância:")
+            for nome, imp in top_features:
+                logger.info(f"  {nome}: {imp:.4f}")
+
         logger.info(f"R² (Treino): {r2_train:.4f}")
         logger.info(f"R² (Validação): {r2_val:.4f}")
         logger.info(f"RMSE (Validação): {rmse_val:.4f}")
@@ -201,13 +241,13 @@ def evaluate(
         modelo: Modelo treinado
         X_train: Features de treino
         X_test: Features de teste
-            y_train: Target de treino
-            y_test: Target de teste
-            features: Lista de features
+        y_train: Target de treino
+        y_test: Target de teste
+        features: Lista de features
 
-        Returns:
-            dict: Métricas do modelo
-        """
+    Returns:
+        dict: Métricas do modelo
+    """
     predicoes_train = modelo.predict(X_train)
     predicoes_test = modelo.predict(X_test)
 
@@ -228,13 +268,13 @@ def evaluate(
     else:
         importancias = {}
 
-        return {
-            "r2_train": score_r2_train,
-            "r2_test": score_r2_test,
-            "rmse_test": rmse_test,
-            "mae_test": mae_test,
-            "feature_importances": importancias,
-        }
+    return {
+        "r2_train": score_r2_train,
+        "r2_test": score_r2_test,
+        "rmse_test": rmse_test,
+        "mae_test": mae_test,
+        "feature_importances": importancias,
+    }
 
 
 def save_model(
@@ -291,6 +331,9 @@ def main() -> None:
     target = config["data"]["target"]
 
     X, y = load_data(train_path, features, target)
+
+    # Diagnóstico do target para monitoramento contínuo
+    _log_diagnostico_target(y)
 
     start_time = datetime.now()
     modelo, X_train, y_train, X_val, y_val = train(X, y, config["model"], val_size=0.1, features=features)

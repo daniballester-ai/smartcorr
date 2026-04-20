@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from datetime import datetime
@@ -69,7 +70,8 @@ def _create_synthetic_features(df: pd.DataFrame) -> pd.DataFrame:
     - Vol_Por_Agente: Volume por agente (pressão de demanda)
     - Margem_Capacidade: Folga para absorver variação
 
-    Features de ESCALA (causas raiz):
+    Features de ESCALA (mantidas para compatibilidade, mas removidas do params.yaml
+    quando HC_Real_Equiv não está disponível):
     - Desvio_Escala_Pct: Desvio de HC real vs previsto
     - Razao_Escala: Proporção real vs prevista
     - Taxa_Sobrecarga: Overload real dos agentes
@@ -104,6 +106,7 @@ def _create_synthetic_features(df: pd.DataFrame) -> pd.DataFrame:
         0.0,
     )
 
+    # Mantidas para compatibilidade (quando HC_Real_Equiv estiver disponível)
     df["Desvio_Escala_Pct"] = np.where(
         df["HC_Previsto"] > 0,
         (df["HC_Real_Equiv"] - df["HC_Previsto"]) / df["HC_Previsto"],
@@ -300,7 +303,149 @@ def _create_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
+def _create_rolling_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Cria rolling features de NS (memória temporal recente).
+
+    Essas features capturam a TENDÊNCIA recente do nível de serviço,
+    com janelas de 3 e 6 intervalos. São mais robustas que lags individuais.
+
+    Args:
+        df: DataFrame ordenado por CodPrograma, Canal, DataHora
+
+    Returns:
+        pd.DataFrame: DataFrame com rolling features
+    """
+    group_cols = ["CodPrograma", "Canal"]
+
+    # Shift(1) para evitar leakage (usa apenas valores anteriores)
+    ns_shifted = df.groupby(group_cols)["NS_Real"].shift(1)
+
+    # Média móvel de NS nos últimos 3 intervalos
+    df["NS_Media_Movel_3"] = (
+        ns_shifted
+        .groupby(df[group_cols].apply(tuple, axis=1))
+        .transform(lambda x: x.rolling(window=3, min_periods=1).mean())
+    )
+
+    # Média móvel de NS nos últimos 6 intervalos
+    df["NS_Media_Movel_6"] = (
+        ns_shifted
+        .groupby(df[group_cols].apply(tuple, axis=1))
+        .transform(lambda x: x.rolling(window=6, min_periods=1).mean())
+    )
+
+    # Desvio padrão móvel de NS nos últimos 6 intervalos (volatilidade)
+    df["NS_Std_Movel_6"] = (
+        ns_shifted
+        .groupby(df[group_cols].apply(tuple, axis=1))
+        .transform(lambda x: x.rolling(window=6, min_periods=2).std())
+    )
+
+    # Preenche NaN com média global (primeiros intervalos de cada programa)
+    media_ns = df["NS_Real"].mean()
+    df["NS_Media_Movel_3"] = df["NS_Media_Movel_3"].fillna(media_ns)
+    df["NS_Media_Movel_6"] = df["NS_Media_Movel_6"].fillna(media_ns)
+    df["NS_Std_Movel_6"] = df["NS_Std_Movel_6"].fillna(0.0)
+
+    logger.info(
+        f"Rolling features criadas: NS_Media_Movel_3 (mean={df['NS_Media_Movel_3'].mean():.3f}), "
+        f"NS_Media_Movel_6 (mean={df['NS_Media_Movel_6'].mean():.3f}), "
+        f"NS_Std_Movel_6 (mean={df['NS_Std_Movel_6'].mean():.3f})"
+    )
+
+    return df
+
+
+def _create_target_encoding(
+    df: pd.DataFrame,
+    target_col: str = "NS_Real",
+    encoding_path: Optional[str] = None,
+    modo: str = "treino",
+) -> pd.DataFrame:
+    """Cria Target Encoding para CodPrograma (escalável para qualquer cliente).
+
+    Como funciona:
+    - Cada CodPrograma recebe um valor numérico = média de NS_Real daquele programa.
+    - Usa suavização (Bayesian smoothing) para programas com poucos dados.
+    - Programas novos (sem histórico) recebem a média global.
+
+    Escalabilidade:
+    - Para novos clientes: basta adicionar CodPrograma no params.yaml.
+    - O encoding é recalculado a cada treino.
+    - Na inferência, carrega o encoding salvo em disco.
+
+    Args:
+        df: DataFrame com colunas CodPrograma e NS_Real
+        target_col: Nome da coluna target
+        encoding_path: Caminho para salvar/carregar o mapeamento
+        modo: 'treino' para calcular encoding, 'inferencia' para carregar
+
+    Returns:
+        pd.DataFrame: DataFrame com coluna Programa_Target_Enc
+    """
+    if modo == "inferencia" and encoding_path:
+        # Inferência: carrega encoding salvo
+        if os.path.exists(encoding_path):
+            with open(encoding_path, "r") as f:
+                encoding_map = json.load(f)
+            media_global = encoding_map.pop("__media_global__", 0.5)
+            # Converte chaves de string para o tipo correto
+            encoding_map = {int(k): v for k, v in encoding_map.items()}
+            df["Programa_Target_Enc"] = (
+                df["CodPrograma"].map(encoding_map).fillna(media_global)
+            )
+            logger.info(
+                f"Target Encoding carregado: {len(encoding_map)} programas"
+            )
+        else:
+            logger.warning(f"Encoding não encontrado em {encoding_path}. Usando 0.5.")
+            df["Programa_Target_Enc"] = 0.5
+        return df
+
+    # Treino: calcula encoding com Bayesian smoothing
+    media_global = df[target_col].mean()
+    min_amostras_suavizacao = 30  # Suavização bayesiana
+
+    contagem_por_programa = df.groupby("CodPrograma")[target_col].agg(["mean", "count"])
+    contagem_por_programa.columns = ["media_programa", "n_amostras"]
+
+    # Bayesian smoothing: weight = n / (n + min_samples)
+    peso = contagem_por_programa["n_amostras"] / (
+        contagem_por_programa["n_amostras"] + min_amostras_suavizacao
+    )
+    contagem_por_programa["encoding"] = (
+        peso * contagem_por_programa["media_programa"]
+        + (1 - peso) * media_global
+    )
+
+    encoding_map = contagem_por_programa["encoding"].to_dict()
+    df["Programa_Target_Enc"] = df["CodPrograma"].map(encoding_map).fillna(media_global)
+
+    logger.info(
+        f"Target Encoding calculado para {len(encoding_map)} programas "
+        f"(global={media_global:.3f})"
+    )
+    for programa, enc_valor in sorted(encoding_map.items()):
+        n = int(contagem_por_programa.loc[programa, "n_amostras"])
+        logger.info(f"  CodPrograma {programa}: encoding={enc_valor:.3f} (n={n})")
+
+    # Salva para uso na inferência
+    if encoding_path:
+        os.makedirs(os.path.dirname(encoding_path), exist_ok=True)
+        encoding_salvar = {str(k): v for k, v in encoding_map.items()}
+        encoding_salvar["__media_global__"] = media_global
+        with open(encoding_path, "w") as f:
+            json.dump(encoding_salvar, f, indent=2)
+        logger.info(f"Target Encoding salvo em: {encoding_path}")
+
+    return df
+
+
+def build_features(
+    df: pd.DataFrame,
+    encoding_path: Optional[str] = None,
+    modo: str = "treino",
+) -> pd.DataFrame:
     """Executa pipeline completo de engenharia de features.
 
     Etapas:
@@ -310,9 +455,13 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         4. Taxas (proporções)
         5. Features de perda de log
         6. Lags (memória histórica)
+        7. Rolling features (média/desvio móvel de NS)
+        8. Target Encoding (CodPrograma → valor numérico escalável)
 
     Args:
         df: DataFrame com dados limpos do clean_data
+        encoding_path: Caminho para salvar/carregar target encoding
+        modo: 'treino' para calcular encoding, 'inferencia' para carregar
 
     Returns:
         pd.DataFrame: DataFrame com features engineering aplicadas
@@ -333,6 +482,8 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df.sort_values(by=["CodPrograma", "Canal", "DataHora"], inplace=True)
     df = _create_lag_features(df)
+    df = _create_rolling_features(df)
+    df = _create_target_encoding(df, encoding_path=encoding_path, modo=modo)
 
     logger.info(f"Colunas após feature engineering: {len(df.columns)}")
     return df
@@ -473,17 +624,19 @@ def main() -> None:
     train_path = config["data"]["processed_train_path"]
     test_path = config["data"]["processed_test_path"]
     future_path = config["data"]["processed_future_path"]
+    encoding_path = config["data"].get("target_encoding_path", "models/target_encoding.json")
 
     df = pd.read_csv(clean_path)
-    df = build_features(df)
 
     if mode == "inference":
+        df = build_features(df, encoding_path=encoding_path, modo="inferencia")
         hoje = pd.to_datetime(datetime.now().date())
         df_futuro = df[df["DataHora"] >= hoje].copy()
         logger.info(f"Modo inference: salvando dados a partir de {hoje.date()}")
         df_futuro.to_csv(future_path, index=False)
         logger.info(f"Dados para inference salvos em: {future_path}. Linhas: {len(df_futuro)}")
     else:
+        df = build_features(df, encoding_path=encoding_path, modo="treino")
         test_size = config["data"].get("test_size", 0.2)
         random_state = config["model"]["params"].get("random_state", 42)
 

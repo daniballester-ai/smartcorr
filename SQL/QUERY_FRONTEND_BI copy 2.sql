@@ -46,7 +46,6 @@ SELECT
     -- 5. Métricas Principais (A Batalha: Nível de Serviço Real vs IA)
     CASE WHEN v.[Vol_Real] > 0 THEN CAST(v.[Vol_Atendidas_NS_Real] AS FLOAT) / v.[Vol_Real] ELSE 0 END AS [Nivel_Servico_Real_Ate_Agora],     
     f.[NS_Previsto_SmartCorr] AS [Nivel_Servico_Previsto_IA],
-    v.[NS_Previsto_Erlang] AS [Nivel_Servico_Previsto_Erlang],
     f.[NS_Lag_1] AS [Nivel_Servico_Meia_Hora_Anterior],
     
     -- 6. Análise Macro: Qual pilar está ajudando ou atrapalhando? (Visão XAI - Cascata)

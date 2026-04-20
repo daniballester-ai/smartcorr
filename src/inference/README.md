@@ -181,19 +181,14 @@ Orquestra pipeline completo.
 | Categoria | Colunas |
 |-----------|---------|
 | Identificação | `DataRef`, `Intervalo`, `CodPrograma`, `Canal` |
-| Predição | `NS_Previsto_SmartCorr` |
-| Metadados | `Vol_Previsto`, `HC_Previsto`, `TMA_Previsto_Avg`, `NS_Lag_1`, `TME_Real_Lag_1`, `Desvio_Volume_Pct_Lag_1` |
+| Predição | `NS_Previsto` |
+| Metadados | `Vol_Previsto`, `HC_Previsto`, `TMA_Previsto_Avg`, `NS_Lag_1`, `TME_Real_Avg_Lag_1`, `Desvio_Volume_Pct_Lag_1` |
 | Pilares | `Impacto_Pilar_Volumetria`, `Impacto_Pilar_Pessoas`, `Impacto_Pilar_TMA`, `Impacto_Pilar_CausasRaiz`, `Impacto_Pilar_Contexto` |
 | Ofensores | `Ofensor_1/2/3_Nome`, `_Pilar`, `_Impacto` |
 | Impulsionadores | `Impulsionador_1/2/3_Nome`, `_Pilar`, `_Impacto` |
 
-### DDL - Novas Colunas
-
-```sql
-ALTER TABLE [OdsCorp].[SmartCorr].[FactSmartCorr_Previsao]
-ADD [TME_Real_Lag_1] DECIMAL(10, 4) NULL,
-    [Desvio_Volume_Pct_Lag_1] DECIMAL(10, 4) NULL;
-```
+### Estrutura da Tabela
+A tabela contém um total de **34 colunas**, permitindo uma análise granular de 3 ofensores e 3 impulsionadores por intervalo, cada um com seu respectivo pilar de origem e valor de impacto SHAP.
 
 ## Configuration
 

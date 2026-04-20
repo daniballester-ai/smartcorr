@@ -38,6 +38,32 @@ def load_queries(queries_file: str) -> dict:
     }
 
 
+def _build_programas_filter(programas: list[int]) -> str:
+    """Constrói a cláusula IN para filtrar programas dinamicamente.
+
+    Permite escalar para qualquer cliente/operação apenas adicionando
+    novos CodPrograma no params.yaml, sem alterar código ou SQL.
+
+    Args:
+        programas: Lista de CodPrograma ativos
+
+    Returns:
+        str: Cláusula SQL formatada (ex: '366845, 370587, 370588')
+
+    Raises:
+        ValueError: Se a lista estiver vazia
+    """
+    if not programas:
+        raise ValueError(
+            "Lista de programas vazia em params.yaml -> data.programas. "
+            "Adicione pelo menos um CodPrograma."
+        )
+
+    filtro = ", ".join(str(p) for p in programas)
+    logger.info(f"Filtro dinâmico de programas: {len(programas)} programa(s) configurado(s)")
+    return filtro
+
+
 def _build_data_expressions(
     janela_dias: int,
     data_corte_final: Optional[str],
@@ -80,6 +106,8 @@ def _fetch_smartcorr_data(
     janela_dias: int,
     data_base_expr: str,
     data_limite_expr: str,
+    programas_filter: str,
+    canal_filter: int,
 ) -> pd.DataFrame:
     """Busca dados principais da View SmartCorr.
 
@@ -89,6 +117,8 @@ def _fetch_smartcorr_data(
         janela_dias: Quantidade de dias para janela de consulta
         data_base_expr: Expressão SQL para data base
         data_limite_expr: Expressão SQL para limite de data
+        programas_filter: Cláusula IN com CodPrograma
+        canal_filter: Código do canal de atendimento
 
     Returns:
         pd.DataFrame: Dados carregados da View SmartCorr
@@ -97,6 +127,8 @@ def _fetch_smartcorr_data(
         query.replace("{janela_dias}", str(janela_dias))
         .replace("{data_base_expr}", data_base_expr)
         .replace("{data_limite_expr}", data_limite_expr)
+        .replace("{programas_filter}", programas_filter)
+        .replace("{canal_filter}", str(canal_filter))
     )
     df = pd.read_sql(query, conexao)
     logger.info(f"Dados SmartCorr carregados: {len(df)} linhas, {len(df.columns)} colunas.")
@@ -109,6 +141,7 @@ def _fetch_perda_log_data(
     janela_dias: int,
     data_base_expr: str,
     data_limite_expr: str,
+    programas_filter: str,
 ) -> pd.DataFrame:
     """Busca dados complementares de perda de log (FatoTempoSistemas).
 
@@ -118,6 +151,7 @@ def _fetch_perda_log_data(
         janela_dias: Quantidade de dias para janela de consulta
         data_base_expr: Expressão SQL para data base
         data_limite_expr: Expressão SQL para limite de data (usa F.[Date])
+        programas_filter: Cláusula IN com CodPrograma
 
     Returns:
         pd.DataFrame: Dados de perda de log agregados por dia
@@ -126,6 +160,7 @@ def _fetch_perda_log_data(
         query.replace("{janela_dias}", str(janela_dias))
         .replace("{data_base_expr}", data_base_expr)
         .replace("{data_limite_expr_perda_log}", data_limite_expr)
+        .replace("{programas_filter}", programas_filter)
     )
     df = pd.read_sql(query, conexao)
     logger.info(f"Dados Perda de Log carregados: {len(df)} linhas.")
@@ -163,6 +198,8 @@ def _merge_daily_data(df_main: pd.DataFrame, df_daily: pd.DataFrame) -> pd.DataF
 def fetch_data(
     janela_dias: int,
     queries_file: str,
+    programas: list[int],
+    canal: int = 7,
     data_corte_final: Optional[str] = None,
     mode: str = "training",
     future_days: int = 7,
@@ -176,6 +213,8 @@ def fetch_data(
     Args:
         janela_dias: Quantidade de dias para janela de consulta (training)
         queries_file: Caminho para o arquivo de queries
+        programas: Lista de CodPrograma ativos (dinâmico via params.yaml)
+        canal: Código do canal de atendimento (default: 7 = Voz)
         data_corte_final: Data de corte no formato DD/MM/YYYY ou None
         mode: Modo de operação ('training' ou 'inference')
         future_days: Dias futuros para inference
@@ -184,6 +223,7 @@ def fetch_data(
         pd.DataFrame: Dados consolidados de volumetria, capacidade e KPIs
     """
     queries = load_queries(queries_file)
+    programas_filter = _build_programas_filter(programas)
 
     data_base_expr, data_limite_smartcorr, data_limite_perda_log, info_janela = _build_data_expressions(
         janela_dias, data_corte_final, mode, future_days
@@ -194,14 +234,18 @@ def fetch_data(
 
     try:
         df_smartcorr = _fetch_smartcorr_data(
-            conexao, queries["smartcorr"], janela_dias, data_base_expr, data_limite_smartcorr
+            conexao, queries["smartcorr"], janela_dias,
+            data_base_expr, data_limite_smartcorr,
+            programas_filter, canal,
         )
 
         if df_smartcorr.empty:
             logger.warning("ATENÇÃO: Nenhum dado retornado! Verifique os filtros e a View no SQL Server.")
 
         df_perda_log = _fetch_perda_log_data(
-            conexao, queries["perda_log"], janela_dias, data_base_expr, data_limite_perda_log
+            conexao, queries["perda_log"], janela_dias,
+            data_base_expr, data_limite_perda_log,
+            programas_filter,
         )
 
         df = _merge_daily_data(df_smartcorr, df_perda_log)
@@ -234,18 +278,22 @@ def main() -> None:
     config = load_config()
 
     mode = config["data"].get("mode", "training")
-    janela_dias = config["data"].get("janela_dias", 60)
+    janela_dias = config["data"].get("janela_dias", 90)
     future_days = config["data"].get("future_days", 7)
     data_corte_final = config["data"].get("data_corte_final")
     queries_file = config["data"]["queries_file"]
     raw_path = config["data"]["raw_path"]
+    programas = config["data"]["programas"]
+    canal = config["data"].get("canal", 7)
 
     df = fetch_data(
-        janela_dias, 
-        queries_file, 
-        data_corte_final,
+        janela_dias,
+        queries_file,
+        programas=programas,
+        canal=canal,
+        data_corte_final=data_corte_final,
         mode=mode,
-        future_days=future_days
+        future_days=future_days,
     )
     save_data(df, raw_path)
 
