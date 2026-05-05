@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apresentação SmartCorr | Visão Executiva</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        fundo: '#0f172a',
+                        painel: '#1e293b',
+                        painelClaro: '#334155',
+                        primaria: '#3b82f6',
+                        secundaria: '#0ea5e9',
+                        sucesso: '#10b981',
+                        perigo: '#ef4444',
+                        alerta: '#f59e0b',
+                        textoBase: '#f8fafc',
+                        textoMutado: '#94a3b8'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons para iconografia moderna -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #0f172a; 
+            color: #f8fafc; 
+            overflow-x: hidden; 
+            scroll-behavior: smooth;
+        }
+        
+        .glass-card {
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 1.5rem;
+            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+        }
+        
+        .glass-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 40px -10px rgba(59, 130, 246, 0.3);
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .borda-gradiente {
+            position: relative;
+        }
+        .borda-gradiente::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: 1.5rem;
+            padding: 2px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.5), rgba(16, 185, 129, 0.5));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+        }
+
+        .animar-entrada {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .animar-entrada.visivel {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .atraso-1 { transition-delay: 100ms; }
+        .atraso-2 { transition-delay: 200ms; }
+        .atraso-3 { transition-delay: 300ms; }
+
+        .gradiente-texto {
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-image: linear-gradient(135deg, #3b82f6, #0ea5e9, #10b981);
+        }
+
+        .blob-bg {
+            position: absolute;
+            filter: blur(100px);
+            z-index: -1;
+            opacity: 0.4;
+            animation: flutuar 10s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes flutuar {
+            0% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(50px, -50px) scale(1.1); }
+            100% { transform: translate(-50px, 50px) scale(0.9); }
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+<body class="antialiased selection:bg-primaria selection:text-white relative">
+
+    <!-- Fundos Decorativos -->
+    <div class="blob-bg bg-primaria w-96 h-96 rounded-full top-0 left-[-100px]"></div>
+    <div class="blob-bg bg-sucesso w-80 h-80 rounded-full top-[40%] right-[-50px]" style="animation-delay: -5s;"></div>
+    <div class="blob-bg bg-secundaria w-[500px] h-[500px] rounded-full bottom-[-100px] left-[20%]" style="animation-delay: -2s;"></div>
+
+    <!-- Navegação Espaçada -->
+    <nav class="fixed top-4 left-4 right-4 z-50 transition-all duration-300" id="navbar">
+        <div class="max-w-7xl mx-auto glass-card px-6 py-4 flex justify-between items-center rounded-2xl">
+            <div class="flex items-center gap-2">
+                <i class="ph-fill ph-brain text-primaria text-3xl"></i>
+                <span class="font-bold text-xl tracking-tight text-white">SmartCorr</span>
+            </div>
+            <div class="hidden md:flex gap-8 text-sm font-medium text-textoMutado">
+                <button class="hover:text-white transition-colors cursor-pointer" onclick="rolarPara('estrategia')">A Estratégia</button>
+                <button class="hover:text-white transition-colors cursor-pointer" onclick="rolarPara('variaveis')">Variáveis</button>
+                <button class="hover:text-white transition-colors cursor-pointer" onclick="rolarPara('graficos')">Resultados</button>
+                <button class="hover:text-white transition-colors cursor-pointer" onclick="rolarPara('llm')">O Futuro (GenAI)</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 pt-40 pb-24">
+        
+        <!-- Hero Section -->
+        <section class="min-h-[70vh] flex flex-col justify-center items-center text-center animar-entrada visivel mb-24">
+            <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-painel/80 border border-white/10 text-primaria text-sm font-medium mb-8">
+                <i class="ph ph-sparkle"></i>
+                <span>Explainable AI e Decisão Causal</span>
+            </div>
+            <h1 class="text-5xl md:text-7xl font-bold tracking-tight mb-6 leading-tight">
+                Da previsão simples à <br class="hidden md:block"/>
+                <span class="gradiente-texto">Ação Operacional Ágil</span>
+            </h1>
+            <p class="text-xl text-textoMutado max-w-3xl mb-12 leading-relaxed">
+                O SmartCorr não apenas prevê o Nível de Serviço. Ele explica microscopicamente o <strong>porquê</strong>, indicando a causa raiz exata e empoderando os gestores com planos de ação claros e imediatos.
+            </p>
+            <button onclick="rolarPara('estrategia')" class="bg-primaria hover:bg-secundaria text-white px-8 py-4 rounded-xl font-semibold transition-all shadow-[0_0_20px_rgba(59,130,246,0.5)] hover:shadow-[0_0_30px_rgba(59,130,246,0.7)] flex items-center gap-2 cursor-pointer">
+                Entender a Estratégia
+                <i class="ph ph-arrow-down"></i>
+            </button>
+        </section>
+
+        <!-- A Estratégia -->
+        <section id="estrategia" class="scroll-mt-32 mb-32">
+            <div class="mb-16 text-center animar-entrada">
+                <h2 class="text-3xl font-bold mb-4">A Estratégia: IA Explicável <span class="text-primaria">(XAI)</span></h2>
+                <p class="text-textoMutado max-w-2xl mx-auto">Saber que a meta não será batida é útil. Saber exatamente o motivo no momento em que acontece muda o jogo.</p>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-8 items-center">
+                <div class="space-y-6 animar-entrada">
+                    <div class="flex gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-painel flex items-center justify-center shrink-0 border border-white/10 shadow-lg">
+                            <i class="ph ph-target text-perigo text-2xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-lg mb-1">Impacto Ofensor</h3>
+                            <p class="text-textoMutado text-sm leading-relaxed">Não recebemos um alerta vago como "O serviço falhou". A plataforma indica: <span class="text-perigo font-medium">Pausa Técnica derrubou a meta em 10%</span>.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-painel flex items-center justify-center shrink-0 border border-white/10 shadow-lg">
+                            <i class="ph ph-rocket-launch text-sucesso text-2xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-lg mb-1">O que nos salva (Impulsionadores)</h3>
+                            <p class="text-textoMutado text-sm leading-relaxed">O sistema monitora qual sub-indicador está segurando a operação: <span class="text-sucesso font-medium">O baixo TMA amorteceu o déficit e contribuiu +3%</span>.</p>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-painel flex items-center justify-center shrink-0 border border-white/10 shadow-lg">
+                            <i class="ph ph-clock-counter-clockwise text-secundaria text-2xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-lg mb-1">Inércia Contextual</h3>
+                            <p class="text-textoMutado text-sm leading-relaxed">Nossa IA lê a "inércia operacional", compreendendo que filas acumulam, calibrando expectativas quando a equipe está drenando um backlog anterior gigantesco.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card borda-gradiente p-8 animar-entrada">
+                    <h3 class="font-semibold text-xl mb-6 flex items-center gap-2">
+                        <i class="ph-fill ph-tree-structure text-primaria"></i> Como agrupamos a complexidade
+                    </h3>
+                    <ul class="space-y-5">
+                        <li class="flex items-center justify-between p-4 bg-painelClaro/30 rounded-lg border border-white/5">
+                            <div class="flex items-center gap-3">
+                                <i class="ph-fill ph-users text-primaria text-xl"></i>
+                                <span class="font-medium">1. Pilar Pessoas</span>
+                            </div>
+                            <span class="text-xs bg-primaria/20 text-primaria px-2 py-1 rounded">Aderência</span>
+                        </li>
+                        <li class="flex items-center justify-between p-4 bg-painelClaro/30 rounded-lg border border-white/5">
+                            <div class="flex items-center gap-3">
+                                <i class="ph-fill ph-chart-bar text-secundaria text-xl"></i>
+                                <span class="font-medium">2. Pilar Volumetria</span>
+                            </div>
+                            <span class="text-xs bg-secundaria/20 text-secundaria px-2 py-1 rounded">Volume</span>
+                        </li>
+                        <li class="flex items-center justify-between p-4 bg-painelClaro/30 rounded-lg border border-white/5">
+                            <div class="flex items-center gap-3">
+                                <i class="ph-fill ph-timer text-alerta text-xl"></i>
+                                <span class="font-medium">3. Pilar TMA</span>
+                            </div>
+                            <span class="text-xs bg-alerta/20 text-alerta px-2 py-1 rounded">Tempo de Serv.</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Variáveis Mapeadas -->
+        <section id="variaveis" class="scroll-mt-32 mb-32">
+            <div class="mb-16 text-center animar-entrada">
+                <h2 class="text-3xl font-bold mb-4">Nossas Variáveis Preditivas</h2>
+                <p class="text-textoMutado max-w-2xl mx-auto">Para garantir a máxima precisão, nossa malha de dados captura os batimentos sistêmicos cruciais, agrupados de forma inteligente pela equipe de Data Science.</p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-6">
+                <!-- Pilar Pessoas -->
+                <div class="glass-card p-6 animar-entrada atraso-1 flex flex-col h-full border-t-4 border-t-primaria">
+                    <div class="mb-4 flex items-center gap-3 border-b border-white/10 pb-4">
+                        <div class="p-2 bg-primaria/10 rounded-lg"><i class="ph ph-users text-primaria text-2xl"></i></div>
+                        <h3 class="text-xl font-semibold">Pessoas</h3>
+                    </div>
+                    <p class="text-sm text-textoMutado mb-6">Mede a adesão e o comportamento das equipes em operação.</p>
+                    <ul class="space-y-3 flex-grow text-sm">
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Headcount e Ociosidade</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Absenteísmo e Faltas Totais</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Turnover e Férias</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Tipos de Pausas (Pessoais, Gestão e NR17)</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Alocação WAHA (Remoto)</li>
+                    </ul>
+                </div>
+
+                <!-- Pilar Volumetria -->
+                <div class="glass-card p-6 animar-entrada atraso-2 flex flex-col h-full border-t-4 border-t-secundaria">
+                    <div class="mb-4 flex items-center gap-3 border-b border-white/10 pb-4">
+                        <div class="p-2 bg-secundaria/10 rounded-lg"><i class="ph ph-chart-line text-secundaria text-2xl"></i></div>
+                        <h3 class="text-xl font-semibold">Volumetria</h3>
+                    </div>
+                    <p class="text-sm text-textoMutado mb-6">Mede toda a dimensão da demanda injetada pela base de clientes.</p>
+                    <ul class="space-y-3 flex-grow text-sm">
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Volume Analítico (Oferecido vs Atendido)</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Taxa e Tempo de Abandono</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Forecast vs Curva Real de Volume</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Sazonalidade temporal</li>
+                    </ul>
+                </div>
+
+                <!-- Pilar TMA -->
+                <div class="glass-card p-6 animar-entrada atraso-3 flex flex-col h-full border-t-4 border-t-alerta">
+                    <div class="mb-4 flex items-center gap-3 border-b border-white/10 pb-4">
+                        <div class="p-2 bg-alerta/10 rounded-lg"><i class="ph ph-timer text-alerta text-2xl"></i></div>
+                        <h3 class="text-xl font-semibold">Desempenho (TMA)</h3>
+                    </div>
+                    <p class="text-sm text-textoMutado mb-6">Tempo de processamento logístico das requisições do sistema.</p>
+                    <ul class="space-y-3 flex-grow text-sm">
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Tempo Falado Total (Talk Time)</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Tempo em Espera (Hold)</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> Tempo Pós-Atendimento (ACW)</li>
+                        <li class="flex items-center gap-2"><i class="ph-fill ph-check-circle text-sucesso"></i> TME (Tempo de Fila Restante)</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Análises Visuais -->
+        <section id="graficos" class="scroll-mt-32 mb-32">
+            <div class="mb-16 text-center animar-entrada">
+                <h2 class="text-3xl font-bold mb-4">Análise em Ação</h2>
+                <p class="text-textoMutado max-w-2xl mx-auto">Sempre de forma amigável: Nossos gestores dispõem de gráficos que traduzem cálculos algorítmicos complexos (SHAP values) em visões operacionais cristalinas.</p>
+            </div>
+
+            <div class="space-y-12">
+                <!-- Gráfico Tipe 1 -->
+                <div class="glass-card p-6 md:p-10 flex flex-col lg:flex-row items-center gap-10 animar-entrada">
+                    <div class="w-full lg:w-3/5 rounded-xl overflow-hidden shadow-2xl border border-white/10 relative group">
+                        <!-- Imagem do gráfico 1 -->
+                        <div class="absolute inset-0 bg-painel opacity-50 flex items-center justify-center -z-10 text-textoMutado">Carregando visualização...</div>
+                        <img src="../SmartCorr/reports/figures/01_SHAP_Resumo_Global.png" alt="Resumo Global de Correlações" class="w-full h-auto object-cover h-[300px] bg-white rounded flex-shrink-0" onerror="this.onerror=null; this.src='https://via.placeholder.com/800x400/1e293b/f8fafc?text=Resumo+Global+Shap';">
+                    </div>
+                    <div class="w-full lg:w-2/5">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded text-primaria bg-primaria/10 text-xs font-semibold mb-4 uppercase tracking-wider">Dashboard 1</div>
+                        <h3 class="text-2xl font-bold mb-3">Resumo Global</h3>
+                        <p class="text-textoMutado mb-6">
+                            Permite uma visão "Big Picture" sobre as variáveis determinantes. Mostra historicamente quais são os verdadeiros pesos pesados de impacto na operação.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Gráfico Tipe 2 -->
+                <div class="glass-card p-6 md:p-10 flex flex-col lg:flex-row-reverse items-center gap-10 animar-entrada">
+                    <div class="w-full lg:w-3/5 rounded-xl overflow-hidden shadow-2xl border border-white/10 relative group">
+                        <!-- Imagem do gráfico 2 -->
+                        <div class="absolute inset-0 bg-painel opacity-50 flex items-center justify-center -z-10 text-textoMutado">Carregando visualização...</div>
+                        <img src="../SmartCorr/reports/figures/02_SHAP_Cachoeira_Crise.png" alt="Efeito Cachoeira em Momentos de Crise" class="w-full h-auto object-cover h-[300px] bg-white rounded flex-shrink-0" onerror="this.onerror=null; this.src='https://via.placeholder.com/800x400/1e293b/ef4444?text=Efeito+Cascata+-+Crise';">
+                    </div>
+                    <div class="w-full lg:w-2/5 text-left lg:text-right">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded text-perigo bg-perigo/10 text-xs font-semibold mb-4 uppercase tracking-wider justify-end">Dashboard 2</div>
+                        <h3 class="text-2xl font-bold mb-3">Arquétipo de Crise (Cachoeira)</h3>
+                        <p class="text-textoMutado mb-6">
+                            Um gráfico de cascata ilustrando exatamente o cenário derretendo. Mostra qual bloco isolado subtraiu os pontos vitais na meta e gerou a queda catastrófica, impedindo "achismos".
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Gráfico Tipe 3 -->
+                <div class="glass-card p-6 md:p-10 flex flex-col lg:flex-row items-center gap-10 animar-entrada">
+                    <div class="w-full lg:w-3/5 rounded-xl overflow-hidden shadow-2xl border border-white/10 relative group">
+                        <!-- Imagem do gráfico 3 -->
+                        <div class="absolute inset-0 bg-painel opacity-50 flex items-center justify-center -z-10 text-textoMutado">Carregando visualização...</div>
+                        <img src="../SmartCorr/reports/figures/03_SHAP_Cachoeira_Sucesso.png" alt="Efeito Cachoeira de Sucesso" class="w-full h-auto object-cover h-[300px] bg-white rounded flex-shrink-0" onerror="this.onerror=null; this.src='https://via.placeholder.com/800x400/1e293b/10b981?text=Efeito+Cascata+-+Sucesso';">
+                    </div>
+                    <div class="w-full lg:w-2/5">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded text-sucesso bg-sucesso/10 text-xs font-semibold mb-4 uppercase tracking-wider">Dashboard 3</div>
+                        <h3 class="text-2xl font-bold mb-3">Modelagem de Sucesso</h3>
+                        <p class="text-textoMutado mb-6">
+                            Ao contrário do comportamento de alerta, este painel celebra e expõe o que gerou ganho extra de eficiência: um volume bem contido, aderência perfeita das pausas e alta produtividade.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- A Evolução (GenAI) -->
+        <section id="llm" class="scroll-mt-32 mb-16">
+            <div class="glass-card borda-gradiente p-10 md:p-16 animar-entrada relative overflow-hidden">
+                <!-- Elemento decorativo interno -->
+                <div class="absolute top-0 right-0 w-64 h-64 bg-primaria/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                
+                <h2 class="text-4xl font-bold mb-6 text-center lg:text-left">
+                    O Próximo Passo: <br class="hidden lg:block"/>
+                    <span class="gradiente-texto">Poder Generativo (LLMs)</span>
+                </h2>
+                
+                <div class="flex flex-col lg:flex-row gap-12 items-center">
+                    <div class="lg:w-1/2 space-y-6">
+                        <p class="text-lg text-textoMutado leading-relaxed">
+                            A cereja do bolo não é apenas exibir painéis: é <strong class="text-white">Eliminar o fardo da interpretação</strong>.
+                        </p>
+                        <p class="text-textoMutado leading-relaxed">
+                            Num futuro muito próximo na nossa arquitetura, os metadados gerados pelo XGBoost (a raiz dos problemas que calculamos) poderão ser enviados diretamente para uma <strong>Inteligência Artificial (Large Language Models)</strong> automatizada e integrada.
+                        </p>
+                        
+                        <div class="bg-painel/50 border border-white/5 rounded-xl p-6 relative">
+                            <i class="ph-fill ph-quotes text-primaria/20 text-6xl absolute -top-4 -left-2 rotate-180"></i>
+                            <div class="relative z-10 flex gap-4">
+                                <div class="w-10 h-10 rounded-full bg-primaria/20 shrink-0 flex items-center justify-center">
+                                    <i class="ph-fill ph-robot text-primaria text-xl"></i>
+                                </div>
+                                <div>
+                                    <p class="font-medium mb-1">Assistente SmartCorr diz:</p>
+                                    <p class="text-sm text-textoMutado italic">"Atenção, Gestor: Seu fechamento está predito para 65%. O principal ofensor na próxima hora será o 'Ausente (Absenteísmo)', que destruirá cerca de 10% da sua meta. Como paliativo, a equipe apresenta bom TMA e está absorvendo parte do choque. Sugestão Imediata: Promover contigenciamento imediato de recursos paralelos ou remanejo de pausas."</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="lg:w-1/2 w-full grid grid-cols-2 gap-4">
+                        <div class="bg-painel/60 p-5 rounded-xl border border-white/5 text-center flex flex-col items-center gap-3">
+                            <div class="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center"><i class="ph ph-lightning text-xl text-secundaria"></i></div>
+                            <h4 class="font-semibold text-sm">Resumo Instantâneo</h4>
+                            <p class="text-xs text-textoMutado">Leitura robótica mastigada em linguagem humana em tempo real.</p>
+                        </div>
+                        <div class="bg-painel/60 p-5 rounded-xl border border-white/5 text-center flex flex-col items-center gap-3">
+                            <div class="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center"><i class="ph ph-chat-centered-text text-xl text-secundaria"></i></div>
+                            <h4 class="font-semibold text-sm">Notificações Push</h4>
+                            <p class="text-xs text-textoMutado">Receba no Teams, Slack ou WhatsApp os insights vitais.</p>
+                        </div>
+                        <div class="bg-painel/60 p-5 rounded-xl border border-white/5 text-center flex flex-col items-center gap-3">
+                            <div class="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center"><i class="ph ph-brain text-xl text-primaria"></i></div>
+                            <h4 class="font-semibold text-sm">Planos Dinâmicos</h4>
+                            <p class="text-xs text-textoMutado">Recomendações baseadas na melhor prática operacional pré-treinada.</p>
+                        </div>
+                        <div class="bg-painel/60 p-5 rounded-xl border border-white/5 text-center flex flex-col items-center gap-3">
+                            <div class="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center"><i class="ph ph-shield-check text-xl text-sucesso"></i></div>
+                            <h4 class="font-semibold text-sm">Agir sem Achismos</h4>
+                            <p class="text-xs text-textoMutado">Direcionamento clínico para a mitigação de danos.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="border-t border-white/10 bg-painel/30 py-8">
+        <div class="max-w-7xl mx-auto px-6 text-center text-textoMutado text-sm flex flex-col items-center justify-center gap-2">
+            <div class="flex items-center gap-2 mb-2">
+                <i class="ph-fill ph-brain text-primaria"></i>
+                <span class="font-semibold text-white">SmartCorr AI Platform</span>
+            </div>
+            <p>Projeto Desenvolvido por Equipe de Inteligência Artificial e Dados.</p>
+            <p class="opacity-60 mt-2">&copy; 2026 Inteligência Operacional. Desenvolvido no Windows local.</p>
+        </div>
+    </footer>
+
+    <!-- Scripts de Interatividade -->
+    <script>
+        // Função simples para rolar até a seção com smooth behavior nativo (estilizado pelo tailwind pt-24 e scroll-mt-32)
+        const rolarPara = (id) => {
+            document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+        };
+
+        // Efeito de escurecimento suave da Navbar ao rolar
+        window.addEventListener('scroll', () => {
+            const navbar = document.querySelectorAll('.glass-card')[0]; 
+            if (window.scrollY > 50) {
+                navbar.style.background = 'rgba(15, 23, 42, 0.85)';
+                navbar.style.borderColor = 'rgba(59, 130, 246, 0.2)';
+            } else {
+                navbar.style.background = 'rgba(30, 41, 59, 0.5)';
+                navbar.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+            }
+        });
+
+        // Intersection Observer para disparar animações quando os componentes aparecem na tela
+        document.addEventListener("DOMContentLoaded", () => {
+            const observador = new IntersectionObserver((entradas) => {
+                entradas.forEach((entrada) => {
+                    if (entrada.isIntersecting) {
+                        entrada.target.classList.add('visivel');
+                        // Opcional: Parar de observar se a animação só deve ocorrer uma vez
+                        observador.unobserve(entrada.target);
+                    }
+                });
+            }, {
+                threshold: 0.15, // 15% do bloco precisão estar preenchido visualmente
+                rootMargin: "0px 0px -50px 0px"
+            });
+
+            document.querySelectorAll('.animar-entrada').forEach((elemento) => {
+                observador.observe(elemento);
+            });
+        });
+    </script>
+</body>
+</html>
