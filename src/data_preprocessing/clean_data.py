@@ -15,7 +15,7 @@ def load_config() -> dict:
     Returns:
         dict: Configurações carregadas do arquivo params.yaml
     """
-    with open("params.yaml", "r") as f:
+    with open("params.yaml", "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -85,6 +85,42 @@ def _filter_relevant_intervals(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtered
 
 
+def _filter_programas_inativos(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove programas sem nenhuma operação real na janela de dados.
+
+    Programas onde TODOS os registros possuem Vol_Real == 0 são
+    considerados inativos no período e removidos do treino para
+    evitar que o modelo aprenda padrões de inatividade.
+
+    Os programas permanecem no params.yaml para treino futuro
+    quando passarem a ter operação real.
+
+    Args:
+        df: DataFrame com colunas CodPrograma e Vol_Real
+
+    Returns:
+        pd.DataFrame: DataFrame apenas com programas operacionais
+    """
+    volume_por_programa = df.groupby("CodPrograma")["Vol_Real"].sum()
+    programas_ativos = volume_por_programa[volume_por_programa > 0].index.tolist()
+    programas_inativos = volume_por_programa[volume_por_programa == 0].index.tolist()
+
+    if programas_inativos:
+        logger.warning(
+            f"PROGRAMAS INATIVOS (Vol_Real=0 em toda janela): "
+            f"{programas_inativos} — removidos do treino"
+        )
+
+    df_filtrado = df[df["CodPrograma"].isin(programas_ativos)].copy()
+
+    logger.info(
+        f"Programas: {len(programas_ativos)} ativos, "
+        f"{len(programas_inativos)} inativos removidos"
+    )
+
+    return df_filtrado
+
+
 def _filter_operacional(
     df: pd.DataFrame,
     config_filtro: dict,
@@ -97,6 +133,9 @@ def _filter_operacional(
 
     Esta função marca os registros como operacionais ou não, e remove
     os não-operacionais do set de treino. Para inferência, mantém todos.
+
+    Inclui diagnóstico por programa para identificar operações com dados
+    anômalos ou inatividade parcial.
 
     Args:
         df: DataFrame com coluna Vol_Real
@@ -125,6 +164,34 @@ def _filter_operacional(
         f"({pct_nao_operacional:.1f}%) intervalos SEM operação real (Vol_Real < {vol_minimo})"
     )
 
+    # ─── Diagnóstico por Programa (P3) ───────────────────────────
+    logger.info("Diagnóstico operacional por programa:")
+    for programa in sorted(df["CodPrograma"].unique()):
+        df_prog = df[df["CodPrograma"] == programa]
+        n_total_prog = len(df_prog)
+        n_nao_op_prog = (~df_prog["eh_operacional"]).sum()
+        pct_prog = (n_nao_op_prog / n_total_prog * 100) if n_total_prog > 0 else 0
+
+        # Estatísticas de NS_Real para registros operacionais
+        ns_operacional = df_prog.loc[df_prog["eh_operacional"], "NS_Real"]
+        ns_mean = ns_operacional.mean() if not ns_operacional.empty else 0
+        ns_zero_pct = (
+            (ns_operacional == 0).mean() * 100 if not ns_operacional.empty else 0
+        )
+
+        icone = "!" if pct_prog > 50 else "*"
+        logger.info(
+            f"  {icone} Programa {programa}: "
+            f"{n_nao_op_prog}/{n_total_prog} ({pct_prog:.1f}%) sem operação | "
+            f"NS médio operac.={ns_mean:.3f}, NS==0 operac.={ns_zero_pct:.1f}%"
+        )
+
+        if pct_prog > 70:
+            logger.warning(
+                f"  Programa {programa}: {pct_prog:.0f}% dos intervalos são "
+                f"não-operacionais. Verifique a grade horária deste programa."
+            )
+
     # Remove não-operacionais do treino
     df_operacional = df[df["eh_operacional"]].copy()
 
@@ -150,12 +217,20 @@ def _calculate_target(df: pd.DataFrame, target_col: str = "NS_Real") -> pd.DataF
     Returns:
         pd.DataFrame: DataFrame com coluna de target calculada
     """
-    df[target_col] = np.where(
+    df["NS_Real"] = np.where(
         df["Vol_Real"] > 0,
         df["Vol_Atendidas_NS_Real"] / df["Vol_Real"],
         0.0,
     )
-    df[target_col] = df[target_col].clip(lower=0.0, upper=1.0)
+    df["NS_Real"] = df["NS_Real"].clip(lower=0.0, upper=1.0)
+
+    df["NS_Previsto_Erlang"] = df.get("NS_Previsto_Erlang", 0.0).fillna(0.0)
+    df["NS_Previsto_Erlang"] = np.clip(df["NS_Previsto_Erlang"], 0.0, 1.0)
+
+    if target_col == "NS_Residuo":
+        df["NS_Residuo"] = df["NS_Real"] - df["NS_Previsto_Erlang"]
+    elif target_col != "NS_Real":
+        raise ValueError(f"Target inválido: {target_col}. Use 'NS_Real' ou 'NS_Residuo'.")
 
     return df
 
@@ -203,20 +278,48 @@ def clean(df: pd.DataFrame, config: Optional[dict] = None) -> pd.DataFrame:
     df = _parse_datetime(df)
     df = _create_temporal_features(df)
     df = _filter_relevant_intervals(df)
-    df = _calculate_target(df)
-    df = _filter_operacional(df, config_filtro)
+    df = _calculate_target(df, target_col=config["data"].get("target", "NS_Real"))
+
+    # Filtros condicionais baseados no modo
+    modo = config["data"].get("mode", "training")
+    if modo != "inference":
+        df = _filter_programas_inativos(df)
+        df = _filter_operacional(df, config_filtro)
+    else:
+        logger.info(
+            "Modo inference: filtros de programa inativo e operacional "
+            "desativados para preservar dados futuros."
+        )
+
     df = _fill_missing_values(df)
 
-    # Log da distribuição do target após limpeza
+    # Log da distribuição do target após limpeza (global + por programa)
     if "NS_Real" in df.columns:
         ns = df["NS_Real"]
         logger.info(
-            f"Distribuição NS_Real pós-limpeza: "
+            f"Distribuição NS_Real pós-limpeza (GLOBAL): "
             f"mean={ns.mean():.3f}, "
             f"==0: {(ns == 0).sum()} ({(ns == 0).mean()*100:.1f}%), "
             f"==1: {(ns == 1).sum()} ({(ns == 1).mean()*100:.1f}%), "
             f"entre 0 e 1: {((ns > 0) & (ns < 1)).sum()} ({((ns > 0) & (ns < 1)).mean()*100:.1f}%)"
         )
+
+        # ─── Diagnóstico NS_Real por programa (P3) ──────────────
+        if modo != "inference":
+            logger.info("Distribuição NS_Real pós-limpeza POR PROGRAMA:")
+            for programa in sorted(df["CodPrograma"].unique()):
+                ns_prog = df.loc[df["CodPrograma"] == programa, "NS_Real"]
+                n_total = len(ns_prog)
+                n_zero = (ns_prog == 0).sum()
+                n_um = (ns_prog == 1).sum()
+                n_entre = ((ns_prog > 0) & (ns_prog < 1)).sum()
+                logger.info(
+                    f"  Programa {programa}: n={n_total}, "
+                    f"mean={ns_prog.mean():.3f}, "
+                    f"==0: {n_zero} ({n_zero/n_total*100:.1f}%), "
+                    f"==1: {n_um} ({n_um/n_total*100:.1f}%), "
+                    f"entre: {n_entre} ({n_entre/n_total*100:.1f}%)"
+                )
 
     logger.info(f"Linhas após limpeza: {len(df)}")
     return df

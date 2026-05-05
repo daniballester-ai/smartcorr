@@ -18,7 +18,7 @@ def load_config() -> dict:
     Returns:
         dict: Configurações carregadas do arquivo params.yaml
     """
-    with open("params.yaml", "r") as f:
+    with open("params.yaml", "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -79,7 +79,14 @@ def load_test_data(test_path: str, features: list, target: str) -> tuple[pd.Data
     return X_test, y_test, df
 
 
-def evaluate(modelo: Any, X_test: pd.DataFrame, y_test: pd.Series, features: list) -> dict:
+def evaluate(
+    modelo: Any,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    features: list,
+    df_test: pd.DataFrame,
+    target: str,
+) -> dict:
     """Avalia modelo no dataset de teste.
 
     Args:
@@ -92,14 +99,82 @@ def evaluate(modelo: Any, X_test: pd.DataFrame, y_test: pd.Series, features: lis
         dict: Métricas de avaliação
     """
     y_predito = modelo.predict(X_test)
+    metricas = {"n_amostras_teste": len(X_test)}
 
-    metricas = {
-        "r2_score": r2_score(y_test, y_predito),
-        "rmse": float(mean_squared_error(y_test, y_predito) ** 0.5),
-        "mse": mean_squared_error(y_test, y_predito),
-        "mae": mean_absolute_error(y_test, y_predito),
-        "n_amostras_teste": len(X_test),
-    }
+    if target == "NS_Residuo" and "NS_Previsto_Erlang" in df_test.columns:
+        ns_erlang = pd.to_numeric(df_test["NS_Previsto_Erlang"], errors="coerce").fillna(0.0)
+        ns_erlang = ns_erlang.clip(0.0, 1.0)
+
+        y_real_res = y_test.values
+        y_pred_res = y_predito
+
+        metricas.update({
+            "target": target,
+            "target_metric_space": "residuo",
+            "r2_score_residuo": float(r2_score(y_real_res, y_pred_res)),
+            "rmse_residuo": float(np.sqrt(mean_squared_error(y_real_res, y_pred_res))),
+            "mse_residuo": float(mean_squared_error(y_real_res, y_pred_res)),
+            "mae_residuo": float(mean_absolute_error(y_real_res, y_pred_res)),
+        })
+
+        y_real_final = np.clip(ns_erlang.values + y_real_res, 0.0, 1.0)
+        y_pred_final = np.clip(ns_erlang.values + y_pred_res, 0.0, 1.0)
+        y_baseline = ns_erlang.values
+
+        mae_baseline = float(mean_absolute_error(y_real_final, y_baseline))
+        rmse_baseline = float(np.sqrt(mean_squared_error(y_real_final, y_baseline)))
+        mae_final = float(mean_absolute_error(y_real_final, y_pred_final))
+        rmse_final = float(np.sqrt(mean_squared_error(y_real_final, y_pred_final)))
+
+        uplift_mae = ((mae_baseline - mae_final) / mae_baseline * 100.0) if mae_baseline > 0 else 0.0
+        uplift_rmse = ((rmse_baseline - rmse_final) / rmse_baseline * 100.0) if rmse_baseline > 0 else 0.0
+
+        metricas.update({
+            "r2_score_ns_final": float(r2_score(y_real_final, y_pred_final)),
+            "rmse_ns_final": rmse_final,
+            "mse_ns_final": float(mean_squared_error(y_real_final, y_pred_final)),
+            "mae_ns_final": mae_final,
+            "rmse_erlang_baseline": rmse_baseline,
+            "mae_erlang_baseline": mae_baseline,
+            "uplift_mae_vs_erlang_pct": float(uplift_mae),
+            "uplift_rmse_vs_erlang_pct": float(uplift_rmse),
+        })
+
+        logger.info(
+            f"Métricas Resíduo: R²={metricas['r2_score_residuo']:.4f}, "
+            f"RMSE={metricas['rmse_residuo']:.4f}, MAE={metricas['mae_residuo']:.4f}"
+        )
+        logger.info(
+            f"Métricas NS_Final: R²={metricas['r2_score_ns_final']:.4f}, "
+            f"RMSE={metricas['rmse_ns_final']:.4f}, MAE={metricas['mae_ns_final']:.4f}, "
+            f"Uplift_MAE={metricas['uplift_mae_vs_erlang_pct']:.2f}%"
+        )
+    else:
+        y_predito_capped = np.clip(y_predito, 0, 1)
+        metricas.update({
+            "target": target,
+            "target_metric_space": "ns_direto",
+            "r2_score": float(r2_score(y_test, y_predito_capped)),
+            "rmse": float(mean_squared_error(y_test, y_predito_capped) ** 0.5),
+            "mse": float(mean_squared_error(y_test, y_predito_capped)),
+            "mae": float(mean_absolute_error(y_test, y_predito_capped)),
+        })
+
+        if "NS_Previsto_Erlang" in df_test.columns:
+            ns_erlang = pd.to_numeric(df_test["NS_Previsto_Erlang"], errors="coerce").fillna(0.0)
+            ns_erlang = ns_erlang.clip(0.0, 1.0)
+            mae_baseline = float(mean_absolute_error(y_test, ns_erlang))
+            rmse_baseline = float(mean_squared_error(y_test, ns_erlang) ** 0.5)
+            uplift_mae = ((mae_baseline - metricas["mae"]) / mae_baseline * 100.0) if mae_baseline > 0 else 0.0
+            uplift_rmse = ((rmse_baseline - metricas["rmse"]) / rmse_baseline * 100.0) if rmse_baseline > 0 else 0.0
+            metricas.update(
+                {
+                    "mae_erlang_baseline": mae_baseline,
+                    "rmse_erlang_baseline": rmse_baseline,
+                    "uplift_mae_vs_erlang_pct": float(uplift_mae),
+                    "uplift_rmse_vs_erlang_pct": float(uplift_rmse),
+                }
+            )
 
     if hasattr(modelo, "feature_importances_"):
         importancias = dict(
@@ -109,11 +184,17 @@ def evaluate(modelo: Any, X_test: pd.DataFrame, y_test: pd.Series, features: lis
             sorted(importancias.items(), key=lambda x: x[1], reverse=True)
         )
         metricas["feature_importances"] = importancias_sorted
+        metricas["feature_importances_context"] = (
+            "impacto_na_predicao_do_residuo"
+            if target == "NS_Residuo"
+            else "impacto_na_predicao_direta_do_ns"
+        )
 
-    logger.info(
-        f"Métricas Globais: R²={metricas['r2_score']:.4f}, "
-        f"RMSE={metricas['rmse']:.4f}, MAE={metricas['mae']:.4f}"
-    )
+    if target != "NS_Residuo":
+        logger.info(
+            f"Métricas Globais: R²={metricas['r2_score']:.4f}, "
+            f"RMSE={metricas['rmse']:.4f}, MAE={metricas['mae']:.4f}"
+        )
 
     return metricas
 
@@ -143,9 +224,10 @@ def evaluate_por_programa(
         return {}
 
     y_predito = modelo.predict(X_test)
+    y_predito_capped = np.clip(y_predito, 0, 1)
     df_eval = df_completo.iloc[y_test.index].copy()
     df_eval["y_real"] = y_test.values
-    df_eval["y_pred"] = y_predito
+    df_eval["y_pred"] = y_predito_capped
 
     metricas_por_programa = {}
 
@@ -195,6 +277,7 @@ def evaluate_por_faixa_ns(
         dict: Métricas por faixa de NS
     """
     y_predito = modelo.predict(X_test)
+    y_predito_capped = np.clip(y_predito, 0, 1)
 
     faixas = {
         "ns_0_30": (0.0, 0.3),
@@ -213,9 +296,9 @@ def evaluate_por_faixa_ns(
             logger.info(f"  Faixa {nome_faixa}: {n_amostras} amostras (insuficiente)")
             continue
 
-        r2 = r2_score(y_test[mask], y_predito[mask])
-        rmse = float(np.sqrt(mean_squared_error(y_test[mask], y_predito[mask])))
-        mae = float(mean_absolute_error(y_test[mask], y_predito[mask]))
+        r2 = r2_score(y_test[mask], y_predito_capped[mask])
+        rmse = float(np.sqrt(mean_squared_error(y_test[mask], y_predito_capped[mask])))
+        mae = float(mean_absolute_error(y_test[mask], y_predito_capped[mask]))
 
         metricas_por_faixa[nome_faixa] = {
             "r2_score": round(r2, 4),
@@ -244,7 +327,7 @@ def save_metrics(metricas: dict, metrics_path: str) -> str:
     """
     os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
 
-    with open(metrics_path, "w") as f:
+    with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metricas, f, indent=4)
     logger.info(f"Métricas salvas em: {metrics_path}")
 
@@ -255,31 +338,71 @@ def main() -> None:
     """Orquestra pipeline de avaliação do modelo."""
     config = load_config()
 
-    model_path = config["model"]["path"]
+    models_dir = config["model"].get("models_dir", "models")
     test_path = config["data"]["processed_test_path"]
     metrics_path = config["model"]["metrics_path"].replace("train_metrics", "evaluation")
-    features = config["data"]["features"]
+    features_global = config["data"]["features"]
     target = config["data"]["target"]
+    programas = config["data"]["programas"]
+    use_feature_registry = config["data"].get("use_feature_registry", False)
 
-    modelo = load_model(model_path)
-    X_test, y_test, df_completo = load_test_data(test_path, features, target)
+    try:
+        from src.config import get_features_for_program
+        HAS_FEATURE_REGISTRY = True
+    except ImportError:
+        HAS_FEATURE_REGISTRY = False
 
-    # Avaliação global
-    metricas = evaluate(modelo, X_test, y_test, features)
+    X_test, y_test, df_completo = load_test_data(test_path, features_global, target)
 
-    # Avaliação segmentada por programa
-    logger.info("Avaliação por CodPrograma:")
-    metricas_programa = evaluate_por_programa(modelo, X_test, y_test, df_completo)
-    if metricas_programa:
-        metricas["por_programa"] = metricas_programa
+    metricas_global = {}
 
-    # Avaliação por faixa de NS
-    logger.info("Avaliação por faixa de NS_Real:")
-    metricas_faixa = evaluate_por_faixa_ns(modelo, X_test, y_test)
-    if metricas_faixa:
-        metricas["por_faixa_ns"] = metricas_faixa
+    for programa in programas:
+        model_path = os.path.join(models_dir, f"model_{programa}.pkl")
 
-    save_metrics(metricas, metrics_path)
+        if not os.path.exists(model_path):
+            logger.warning(f"Modelo não encontrado: {model_path}. Pulando.")
+            continue
+
+        logger.info(f"Avaliando modelo do programa {programa}...")
+
+        modelo = load_model(model_path)
+
+        if use_feature_registry and HAS_FEATURE_REGISTRY:
+            features = get_features_for_program(programa, features_global)
+        else:
+            features = features_global
+
+        df_prog = df_completo[df_completo["CodPrograma"] == programa]
+        if df_prog.empty:
+            logger.warning(f"Programa {programa}: sem dados de teste. Pulando.")
+            continue
+
+        features_missing = set(features) - set(df_prog.columns)
+        for f in features_missing:
+            df_prog[f] = 0.0
+
+        X_prog = df_prog[features]
+        y_prog = df_prog[target]
+
+        metricas_prog = evaluate(modelo, X_prog, y_prog, features, df_prog, target)
+        metricas_global[f"programa_{programa}"] = metricas_prog
+
+        if target == "NS_Residuo":
+            r2_val = metricas_prog.get("r2_score_ns_final")
+            mae_val = metricas_prog.get("mae_ns_final")
+        else:
+            r2_val = metricas_prog.get("r2_score")
+            mae_val = metricas_prog.get("mae")
+        
+        r2_str = f"{r2_val:.4f}" if isinstance(r2_val, (int, float)) else str(r2_val)
+        mae_str = f"{mae_val:.4f}" if isinstance(mae_val, (int, float)) else str(mae_val)
+
+        logger.info(
+            f"Programa {programa}: R2={r2_str}, "
+            f"MAE={mae_str}"
+        )
+
+    save_metrics(metricas_global, metrics_path)
 
 
 if __name__ == "__main__":

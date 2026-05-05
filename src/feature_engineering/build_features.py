@@ -99,6 +99,12 @@ def _create_synthetic_features(df: pd.DataFrame) -> pd.DataFrame:
         0.0,
     )
 
+    df["Ocupacao_Sintetica"] = np.where(
+        df["HC_Previsto"] > 0,
+        (df["Vol_Previsto"] * df["Tempo_AHT_Previsto_Total"]) / (df["HC_Previsto"] * 1800),
+        0.0,
+    )
+
     capacidade_teorica = df["HC_Previsto"] * 1800
     df["Margem_Capacidade"] = np.where(
         capacidade_teorica > 0,
@@ -300,6 +306,8 @@ def _create_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     df["NS_Lag_2"] = df["NS_Lag_2"].fillna(media_ns)
     df["NS_Lag_3"] = df["NS_Lag_3"].fillna(media_ns)
 
+    df["Delta_Aceleracao_NS"] = df["NS_Lag_1"] - df["NS_Lag_2"]
+
     return df
 
 
@@ -356,6 +364,64 @@ def _create_rolling_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _create_seasonality_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Cria features de sazonalidade para capturar padrões temporais.
+
+    Features:
+    - Dia do mês (1-31)
+    - Semana do mês (1-5)
+    - É início/fim de mês
+    - É segunda ou sexta
+    - È dia de semana ou fim de semana
+
+    Args:
+        df: DataFrame com coluna DataHora
+
+    Returns:
+        pd.DataFrame com features de sazonalidade
+    """
+    if "DataHora" not in df.columns:
+        return df
+
+    df["DataHora"] = pd.to_datetime(df["DataHora"])
+
+    df["Dia_Mes"] = df["DataHora"].dt.day
+
+    df["Semana_Mes"] = (df["Dia_Mes"] - 1) // 7 + 1
+
+    df["Dia_Semana"] = df["DataHora"].dt.dayofweek
+
+    df["Is_Inicio_Fim_Mes"] = np.where(
+        (df["Dia_Mes"] <= 5) | (df["Dia_Mes"] >= 26),
+        1.0, 0.0
+    )
+
+    df["Is_Segunda_Sexta"] = np.where(
+        (df["DataHora"].dt.dayofweek == 0) | (df["DataHora"].dt.dayofweek == 4),
+        1.0, 0.0
+    )
+
+    df["Is_Fim_Semana"] = np.where(
+        df["DataHora"].dt.dayofweek >= 5,
+        1.0, 0.0
+    )
+
+    df["Hora_Dia_Ciclo"] = df["DataHora"].dt.hour % 8
+
+    df["Is_Horario_Pico"] = np.where(
+        (df["DataHora"].dt.hour >= 10) & (df["DataHora"].dt.hour <= 14),
+        1.0, 0.0
+    )
+
+    logger.info(
+        f"Seasonality features: Dia_Mes (mean={df['Dia_Mes'].mean():.1f}), "
+        f"Semana_Mes (mean={df['Semana_Mes'].mean():.1f}), "
+        f"Is_Fim_Semana={df['Is_Fim_Semana'].mean():.2f}"
+    )
+
+    return df
+
+
 def _create_target_encoding(
     df: pd.DataFrame,
     target_col: str = "NS_Real",
@@ -384,22 +450,55 @@ def _create_target_encoding(
         pd.DataFrame: DataFrame com coluna Programa_Target_Enc
     """
     if modo == "inferencia" and encoding_path:
-        # Inferência: carrega encoding salvo
-        if os.path.exists(encoding_path):
-            with open(encoding_path, "r") as f:
-                encoding_map = json.load(f)
-            media_global = encoding_map.pop("__media_global__", 0.5)
-            # Converte chaves de string para o tipo correto
-            encoding_map = {int(k): v for k, v in encoding_map.items()}
-            df["Programa_Target_Enc"] = (
-                df["CodPrograma"].map(encoding_map).fillna(media_global)
-            )
+        # ─── Inferência: prioriza encoding por programa (P2) ────
+        dir_encodings = os.path.join(
+            os.path.dirname(encoding_path), "encodings"
+        )
+        encoding_map: dict[int, float] = {}
+        media_global = 0.5
+
+        # 1) Tenta carregar arquivos individuais por programa
+        if os.path.isdir(dir_encodings):
+            arquivos_enc = [
+                f for f in os.listdir(dir_encodings)
+                if f.startswith("target_encoding_") and f.endswith(".json")
+            ]
+            for arq in arquivos_enc:
+                caminho_arq = os.path.join(dir_encodings, arq)
+                with open(caminho_arq, "r", encoding="utf-8") as f:
+                    dados = json.load(f)
+                prog = int(dados["programa"])
+                encoding_map[prog] = float(dados["encoding"])
+                # Usa a média global do primeiro arquivo encontrado
+                if "media_global" in dados:
+                    media_global = float(dados["media_global"])
             logger.info(
-                f"Target Encoding carregado: {len(encoding_map)} programas"
+                f"Target Encoding por programa carregado: "
+                f"{len(encoding_map)} programas de {dir_encodings}"
             )
+        # 2) Fallback: arquivo global (backward compat)
+        elif os.path.exists(encoding_path):
+            logger.info(
+                f"Diretório {dir_encodings} não encontrado. "
+                f"Usando encoding global: {encoding_path}"
+            )
+            with open(encoding_path, "r", encoding="utf-8") as f:
+                enc_global = json.load(f)
+            media_global = enc_global.pop("__media_global__", 0.5)
+            encoding_map = {int(k): v for k, v in enc_global.items()}
         else:
-            logger.warning(f"Encoding não encontrado em {encoding_path}. Usando 0.5.")
-            df["Programa_Target_Enc"] = 0.5
+            logger.warning(
+                f"Nenhum encoding encontrado ({dir_encodings} / "
+                f"{encoding_path}). Usando 0.5."
+            )
+
+        df["Programa_Target_Enc"] = (
+            df["CodPrograma"].map(encoding_map).fillna(media_global)
+        )
+        logger.info(
+            f"Encoding aplicado (media_global={media_global:.3f}): "
+            f"{encoding_map}"
+        )
         return df
 
     # Treino: calcula encoding com Bayesian smoothing
@@ -434,9 +533,34 @@ def _create_target_encoding(
         os.makedirs(os.path.dirname(encoding_path), exist_ok=True)
         encoding_salvar = {str(k): v for k, v in encoding_map.items()}
         encoding_salvar["__media_global__"] = media_global
-        with open(encoding_path, "w") as f:
+        with open(encoding_path, "w", encoding="utf-8") as f:
             json.dump(encoding_salvar, f, indent=2)
-        logger.info(f"Target Encoding salvo em: {encoding_path}")
+        logger.info(f"Target Encoding global salvo em: {encoding_path}")
+
+        # ─── Salva encoding por programa (P2) ───────────────────
+        encoding_dir = os.path.dirname(encoding_path)
+        dir_por_programa = os.path.join(encoding_dir, "encodings")
+        os.makedirs(dir_por_programa, exist_ok=True)
+
+        for programa, enc_valor in encoding_map.items():
+            caminho_prog = os.path.join(
+                dir_por_programa, f"target_encoding_{programa}.json"
+            )
+            dados_prog = {
+                "programa": int(programa),
+                "encoding": float(enc_valor),
+                "media_global": float(media_global),
+                "n_amostras": int(
+                    contagem_por_programa.loc[programa, "n_amostras"]
+                ),
+            }
+            with open(caminho_prog, "w", encoding="utf-8") as f:
+                json.dump(dados_prog, f, indent=2)
+
+        logger.info(
+            f"Target Encoding por programa salvo: {len(encoding_map)} "
+            f"arquivos em {dir_por_programa}"
+        )
 
     return df
 
@@ -483,6 +607,7 @@ def build_features(
     df.sort_values(by=["CodPrograma", "Canal", "DataHora"], inplace=True)
     df = _create_lag_features(df)
     df = _create_rolling_features(df)
+    df = _create_seasonality_features(df)
     df = _create_target_encoding(df, encoding_path=encoding_path, modo=modo)
 
     logger.info(f"Colunas após feature engineering: {len(df.columns)}")

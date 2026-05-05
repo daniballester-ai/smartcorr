@@ -36,4 +36,7 @@ mlruns/
 
 # Project
 .env
+ajustes/
+notebooks/
+.trae/
 

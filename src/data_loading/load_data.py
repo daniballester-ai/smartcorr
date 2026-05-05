@@ -17,7 +17,7 @@ def load_config() -> dict:
     Returns:
         dict: Configurações carregadas do arquivo params.yaml
     """
-    with open("params.yaml", "r") as f:
+    with open("params.yaml", "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -249,6 +249,12 @@ def fetch_data(
         )
 
         df = _merge_daily_data(df_smartcorr, df_perda_log)
+        
+        # Ordenar dados na origem (DataRef e Intervalo)
+        sort_cols = [col for col in ['DataRef', 'Intervalo'] if col in df.columns]
+        if sort_cols:
+            df = df.sort_values(by=sort_cols).reset_index(drop=True)
+            logger.info(f"Dados consolidados e ordenados por: {', '.join(sort_cols)}")
 
         return df
 
@@ -278,7 +284,10 @@ def main() -> None:
     config = load_config()
 
     mode = config["data"].get("mode", "training")
-    janela_dias = config["data"].get("janela_dias", 90)
+    if mode == "inference":
+        janela_dias = config["data"].get("janela_dias_inference", 30)
+    else:
+        janela_dias = config["data"].get("janela_dias", 180)
     future_days = config["data"].get("future_days", 7)
     data_corte_final = config["data"].get("data_corte_final")
     queries_file = config["data"]["queries_file"]

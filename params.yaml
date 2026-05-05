@@ -2,121 +2,126 @@ database:
   server: SPWS-VM-DB81
   database: OdsCorp
   driver: SQL Server
-  auth_type: windows # ou 'sql' se for usar user/pass
-  user:
-  password:
-
+  auth_type: windows
+  user: null
+  password: null
 data:
-  mode: training  # 'training' ou 'inference'
+  mode: inference
   queries_file: config/queries.ini
   raw_path: data/raw/raw_history.csv
   clean_path: data/interim/clean_data.csv
   processed_train_path: data/processed/train_data.csv
   processed_test_path: data/processed/test_data.csv
-  processed_future_path: data/processed/future_data.csv # Dados para predição
-  test_size: 0.2 # Proporção para teste fixo
-  janela_dias: 90 # Janela de treino em dias (aumentado de 30 para capturar sazonalidade mensal)
-  future_days: 7 # Dias futuros para inference
-  data_corte_final:      # Opcional: Data de corte no formato DD/MM/YYYY (ex: '31/01/2026'). Se null, usa data atual.
-  target: NS_Real # Variável Alvo (calculada no data_preprocessing: Vol_Atendidas_NS_Real / Vol_Real)
-
-  # --- Programas Ativos ---
-  # Lista dinâmica de CodPrograma. Para escalar a novos clientes/operações,
-  # basta adicionar os códigos aqui. Nenhum código precisa mudar.
+  processed_future_path: data/processed/future_data.csv
+  test_size: 0.2
+  janela_dias: 90
+  janela_dias_inference: 30
+  future_days: 7
+  data_corte_final: null
+  target: NS_Real
   programas:
-    - 366845
-    - 370587
-    - 370588
-    - 548619
-    - 581345
-    - 581346
-    - 589266
-    - 589360
-    - 589361
-    - 591529
-    - 347851
-    - 347858
-    - 353059
-    - 355491
-    - 355492
-
-  # Canal de atendimento (7 = Voz). Para multi-canal, transformar em lista.
+  - 366845
+  - 370587
+  - 370588
+  - 548619
+  - 581345
+  - 581346
+  - 589266
+  - 589360
+  - 589361
+  - 591529
+  - 347851
+  - 347858
+  - 353059
+  - 355491
+  - 355492
   canal: 7
-
-  # --- Filtro Operacional ---
-  # Remove intervalos sem operação real do treino para evitar viés.
-  # 'vol_minimo_operacional' = volume mínimo para considerar que houve operação.
   filtro_operacional:
     ativo: true
-    vol_minimo_operacional: 1 # Se Vol_Real >= 1, considera operacional
-
-  # --- Target Encoding ---
-  # Arquivo onde o mapeamento de CodPrograma -> encoding é salvo para uso na inferência.
+    vol_minimo_operacional: 1
   target_encoding_path: models/target_encoding.json
-
+  target_encoding_dir: models/encodings/
+  use_feature_registry: true
   features:
-    # --- METAS (Dados Disponíveis antes do Fato) ---
-    - Vol_Previsto
-    - HC_Previsto
-    - Tempo_AHT_Previsto_Total
-    - Hora
-    - DiaSemana
-    - ABS_Taxa_Daily
-    - Turnover_Taxa_Daily
-    - Ferias_Qtd_Daily
-    - Faltas_Qtd_Daily
-    # --- LAGS (Dados Reais do Intervalo Anterior - shift=1) ---
-    - TME_Real_Avg_Lag_1
-    - Desvio_Volume_Pct_Lag_1
-    - Delta_TMA_Lag_1
-    # --- FEATURES SINTÉTICAS (calculadas a partir de dados previstos) ---
-    - Pressao_Prevista_Vol_HC
-    - Indicador_Sufoco
-    - Vol_Por_Agente
-    - Margem_Capacidade
-    # --- PERDA DE LOG (Pilar Pessoas) ---
-    - PerdaLog_Taxa_Daily
-    - NewHire_Pct_Daily
-    - AgentIssues_Taxa_Daily
-    # --- ROLLING (Memória temporal de NS) ---
-    - NS_Media_Movel_3
-    - NS_Media_Movel_6
-    - NS_Std_Movel_6
-    # --- ENCODING DINÂMICO (Escalável para novos clientes) ---
-    - Programa_Target_Enc
-
-  # Features removidas por zero variância / dados indisponíveis:
-  # - WAHA_Qtd_Daily (100% zeros)
-  # - Taxa_Ocupacao_Lag_1 (100% zeros - HC_Real_Equiv indisponível)
-  # - Taxa_Pausa_Tecnica_Lag_1 (100% zeros - HC_Real_Equiv indisponível)
-  # - Taxa_Pausa_Pessoal_Lag_1 (100% zeros - HC_Real_Equiv indisponível)
-  # - Taxa_Pausa_Gestao_Lag_1 (100% zeros - HC_Real_Equiv indisponível)
-  # - Desvio_HC_Pct_Lag_1 (mean=-0.998, constante)
-  # - Desvio_Escala_Pct (depende de HC_Real_Equiv, constante)
-  # - Razao_Escala (100% zeros)
-  # - Taxa_Sobrecarga (100% zeros)
-  # - TechIssues_Taxa_Daily (99.4% zeros)
-  # - Taxa_Abandono_Lag_1 (97% zeros)
-
+  - Vol_Previsto
+  - HC_Previsto
+  - Tempo_AHT_Previsto_Total
+  - Hora
+  - DiaSemana
+  - ABS_Taxa_Daily
+  - Turnover_Taxa_Daily
+  - Ferias_Qtd_Daily
+  - Faltas_Qtd_Daily
+  - TME_Real_Avg_Lag_1
+  - Desvio_Volume_Pct_Lag_1
+  - Delta_TMA_Lag_1
+  - Pressao_Prevista_Vol_HC
+  - Indicador_Sufoco
+  - Vol_Por_Agente
+  - Margem_Capacidade
+  - Ocupacao_Sintetica
+  - PerdaLog_Taxa_Daily
+  - NewHire_Pct_Daily
+  - AgentIssues_Taxa_Daily
+  - NS_Media_Movel_3
+  - NS_Media_Movel_6
+  - NS_Std_Movel_6
+  - NS_Lag_1
+  - NS_Lag_2
+  - NS_Lag_3
+  - Delta_Aceleracao_NS
+  - Programa_Target_Enc
+  - Dia_Mes
+  - Semana_Mes
+  - Dia_Semana
+  - Is_Inicio_Fim_Mes
+  - Is_Segunda_Sexta
+  - Is_Fim_Semana
+  - Hora_Dia_Ciclo
+  - Is_Horario_Pico
+  - NS_Previsto_Erlang
 model:
   path: models/model.pkl
+  models_dir: models/
+  metrics_dir: metrics/
   metrics_path: metrics/train_metrics.json
-  type: XGBRegressor # XGBoost - Mais indicado para Tabular/Deltas
+  min_registros_operacionais: 50
+  type: XGBRegressor
+  limite_correcao_residuo: 0.15
   training:
     sample_threshold: 500000
     sample_frac: 0.2
   params:
-    n_estimators: 300       # Aumentado (early stopping controla)
-    max_depth: 8            # Reduzido de 12 para evitar overfitting em menos features
-    learning_rate: 0.03     # Mais conservador para melhor generalização
-    alpha: 1
-    reg_lambda: 2           # Mais regularização
+    n_estimators: 200
+    max_depth: 4
+    learning_rate: 0.05
+    min_child_weight: 10
+    alpha: 15
+    reg_lambda: 20
     colsample_bytree: 0.7
-    subsample: 0.7
-    min_child_weight: 5     # Adicionado para evitar splits em poucos registros
+    subsample: 0.75
     random_state: 42
     n_jobs: -1
-    early_stopping_rounds: 25 # Aumentado para learning_rate menor
-
+    tree_method: hist
+    objective: reg:absoluteerror
+    early_stopping_rounds: 30
+  target_transformation: true
+  optimize_hyperparameters: true
+  optuna_n_trials: 20
+  use_cv: true
+  cv_n_splits: 5
+  use_rolling_window: true
+  rolling_window_days: 90
+  enable_drift_detection: true
+  drift_threshold: 0.15
+  use_ensemble: false
+  ensemble_models:
+  - XGBRegressor
+  - RandomForest
+  - Ridge
+  ensemble_weights:
+  - 0.5
+  - 0.3
+  - 0.2
 inference:
   output_path: data/processed/predictions.csv
