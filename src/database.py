@@ -9,13 +9,21 @@ logger = logging.getLogger(__name__)
 def load_config():
     """Carrega as configurações do arquivo params.yaml"""
     config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'params.yaml')
-    with open(config_path, 'r') as file:
+    with open(config_path, 'r', encoding='utf-8') as file:
         return yaml.safe_load(file)
 
 def get_connection_string():
     """Gera a string de conexão baseada em configurações e credenciais."""
     
-    # Tenta carregar credenciais locais
+    # 1. Se houver uma string de conexão explícita via variável de ambiente (DataCore)
+    env_conn_str = os.getenv('DB_CONNECTION_STRING')
+    if env_conn_str and env_conn_str != 'None':
+        # Clean quotes if passed by the CLI
+        env_conn_str = env_conn_str.strip("'\"")
+        logger.info("Usando connection string fornecida via ambiente (DataCore).")
+        return env_conn_str
+
+    # 2. Tenta carregar credenciais locais
     try:
         # Adiciona o diretório atual ao path para importar credencial se necessário
         # Assumindo que credencial.py está no mesmo nível deste script ou root
@@ -35,7 +43,7 @@ def get_connection_string():
     if not USERNAME_DEST or USERNAME_DEST == 'None':
         # Autenticação Windows
         conn_str = (
-            f'DRIVER={driver};'
+            f'DRIVER={{{driver}}};'
             f'SERVER={SERVER_DEST};'
             f'DATABASE={DATABASE_DEST};'
             f'Trusted_Connection=yes;'
@@ -44,7 +52,7 @@ def get_connection_string():
     else:
         # Autenticação SQL
         conn_str = (
-            f'DRIVER={driver};'
+            f'DRIVER={{{driver}}};'
             f'SERVER={SERVER_DEST};'
             f'DATABASE={DATABASE_DEST};'
             f'UID={USERNAME_DEST};'

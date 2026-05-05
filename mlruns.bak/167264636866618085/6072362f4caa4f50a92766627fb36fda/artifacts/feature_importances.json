@@ -1,0 +1,22 @@
+{
+  "Hora": 0.0483100451529026,
+  "DiaSemana": 0.030303390696644783,
+  "Vol_Previsto": 0.03676602616906166,
+  "HC_Previsto": 0.10458057373762131,
+  "Tempo_AHT_Previsto_Total": 0.02602452039718628,
+  "ABS_Taxa_Daily": 0.046834636479616165,
+  "TME_Real_Avg_Lag_1": 0.0756605714559555,
+  "Desvio_Volume_Pct_Lag_1": 0.041282352060079575,
+  "Delta_TMA_Lag_1": 0.05065913498401642,
+  "Pressao_Prevista_Vol_HC": 0.053702663630247116,
+  "Indicador_Sufoco": 0.04648863896727562,
+  "Vol_Por_Agente": 0.05287611484527588,
+  "Margem_Capacidade": 0.04330189526081085,
+  "PerdaLog_Taxa_Daily": 0.0762338787317276,
+  "NS_Media_Movel_3": 0.0868346095085144,
+  "NS_Media_Movel_6": 0.09741651266813278,
+  "NS_Std_Movel_6": 0.024871528148651123,
+  "Turnover_Taxa_Daily": 0.005442965775728226,
+  "Ferias_Qtd_Daily": 0.011461085639894009,
+  "Faltas_Qtd_Daily": 0.04094885289669037
+}

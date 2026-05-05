@@ -29,6 +29,7 @@ stages:
       - data/processed/train_data.csv
       - data/processed/test_data.csv
       - data/processed/future_data.csv
+      - models/target_encoding.json
     params:
       - data.mode
       - data.test_size
@@ -37,14 +38,16 @@ stages:
 
   train:
     cmd: python -m src.model_training.train_model
+    always_changed: true
     deps:
       - src/model_training/train_model.py
       - data/processed/train_data.csv
-    outs:
-      - models/model.pkl
+      - data/processed/test_data.csv
     metrics:
-      - metrics/train_metrics.json
+      - metrics/train_metrics.json:
+          cache: false
     params:
+      - data.programas
       - model.params.n_estimators
       - model.params.max_depth
       - model.params.learning_rate
@@ -54,5 +57,6 @@ stages:
       - model.params.subsample
       - model.params.random_state
       - model.params.early_stopping_rounds
+      - model.min_registros_operacionais
 
 

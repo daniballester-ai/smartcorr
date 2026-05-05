@@ -1,0 +1,22 @@
+digest: 7d98ee5f
+name: dataset
+profile: '{"num_rows": 516, "num_elements": 10320}'
+schema: '{"mlflow_colspec": [{"type": "long", "name": "Hora", "required": true}, {"type":
+  "long", "name": "DiaSemana", "required": true}, {"type": "double", "name": "Vol_Previsto",
+  "required": true}, {"type": "double", "name": "HC_Previsto", "required": true},
+  {"type": "double", "name": "Tempo_AHT_Previsto_Total", "required": true}, {"type":
+  "double", "name": "ABS_Taxa_Daily", "required": true}, {"type": "double", "name":
+  "TME_Real_Avg_Lag_1", "required": true}, {"type": "double", "name": "Desvio_Volume_Pct_Lag_1",
+  "required": true}, {"type": "double", "name": "Delta_TMA_Lag_1", "required": true},
+  {"type": "double", "name": "Pressao_Prevista_Vol_HC", "required": true}, {"type":
+  "double", "name": "Indicador_Sufoco", "required": true}, {"type": "double", "name":
+  "Vol_Por_Agente", "required": true}, {"type": "double", "name": "Margem_Capacidade",
+  "required": true}, {"type": "double", "name": "PerdaLog_Taxa_Daily", "required":
+  true}, {"type": "double", "name": "NS_Media_Movel_3", "required": true}, {"type":
+  "double", "name": "NS_Media_Movel_6", "required": true}, {"type": "double", "name":
+  "NS_Std_Movel_6", "required": true}, {"type": "double", "name": "Turnover_Taxa_Daily",
+  "required": true}, {"type": "long", "name": "Ferias_Qtd_Daily", "required": true},
+  {"type": "long", "name": "Faltas_Qtd_Daily", "required": true}]}'
+source: '{"tags": {"mlflow.user": "DANI", "mlflow.source.name": "main.py", "mlflow.source.type":
+  "LOCAL", "mlflow.source.git.commit": "c0c67e133653c946f4d12360d69155fcb91cecb1"}}'
+source_type: code
