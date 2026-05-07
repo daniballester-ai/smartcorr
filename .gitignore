@@ -40,3 +40,9 @@ ajustes/
 notebooks/
 .trae/
 
+# Imagens
+*.jpg
+*.png
+*.jpeg
+*.svg
+

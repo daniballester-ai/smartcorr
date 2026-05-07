@@ -216,7 +216,9 @@ def salvar_no_banco(tuplas_dados: list[tuple]) -> None:
     Raises:
         Exception: Se ocorrer erro na transacao no banco de dados
     """
-    conn = get_connection()
+    engine = get_connection()
+    # Obter a conexao bruta do DBAPI (pyodbc) para usar fast_executemany
+    conn = engine.raw_connection()
     cursor = conn.cursor()
 
     query = """
@@ -281,7 +283,19 @@ def main() -> None:
     """
     config = load_config()
     caminho_futuro = config["data"]["processed_future_path"]
-    features = config["data"]["features"]
+    features_global = config["data"]["features"]
+    use_feature_registry = config["data"].get("use_feature_registry", False)
+    
+    # Import feature registry if needed
+    if use_feature_registry:
+        try:
+            from src.config.feature_registry import get_features_for_program
+            HAS_FEATURE_REGISTRY = True
+        except ImportError:
+            HAS_FEATURE_REGISTRY = False
+    else:
+        HAS_FEATURE_REGISTRY = False
+    
     diretorio_modelos = config["model"].get("models_dir", "models")
 
     if not os.path.exists(caminho_futuro):
@@ -347,16 +361,31 @@ def main() -> None:
                 f"em {caminho_enc}. Usando valor do CSV."
             )
 
-        # Garantir ordem das colunas idêntica ao modelo treinado
-        if hasattr(modelo, "feature_names_in_"):
-            X = df_prog[list(modelo.feature_names_in_)]
+        # 1. Determinar lista de features (Registro ou Global)
+        if HAS_FEATURE_REGISTRY:
+            features_prog = get_features_for_program(programa, features_global)
+            logger.info(f"   Using {len(features_prog)} features from registry for programa {programa}")
         else:
-            X = df_prog[features]
+            features_prog = features_global
 
+        # 2. Preparar os dados de entrada (X) garantindo a ordem esperada pelo modelo
+        if hasattr(modelo, "feature_names_in_"):
+            expected_features = list(modelo.feature_names_in_)
+            # Filtra e ordena as colunas conforme o modelo foi treinado
+            available_features = [f for f in expected_features if f in df_prog.columns]
+            if len(available_features) < len(expected_features):
+                missing = set(expected_features) - set(available_features)
+                logger.warning(f"   Missing features for prediction: {missing}")
+            X_filtered = df_prog[available_features]
+            logger.info(f"   Using {len(available_features)} features (model expects {len(expected_features)})")
+        else:
+            X_filtered = df_prog[features_prog]
+            logger.info(f"   Using global features: {len(features_prog)}")
+        
         logger.info(
-            f"3. Programa {programa}: predicao de {len(X)} intervalos..."
+            f"3. Programa {programa}: predicao de {len(X_filtered)} intervalos..."
         )
-        predicoes_trans = modelo.predict(X)
+        predicoes_trans = modelo.predict(X_filtered)
         
         target_transformation = config["model"].get("target_transformation", False)
         target = config["data"].get("target", "NS_Real")
@@ -367,10 +396,10 @@ def main() -> None:
             predicoes = predicoes_trans
 
         logger.info(f"4. Programa {programa}: SHAP Values...")
-        shap_values = calcular_explicabilidade_shap(modelo, X)
+        shap_values = calcular_explicabilidade_shap(modelo, X_filtered)
 
         logger.info(f"5. Programa {programa}: processando impactos por pilar...")
-        tuplas = processar_previsoes(df_prog, predicoes, shap_values, features)
+        tuplas = processar_previsoes(df_prog, predicoes, shap_values, features_prog)
         todas_tuplas.extend(tuplas)
 
         ns_medio = float(np.mean(np.clip(predicoes, 0.0, 1.0)))

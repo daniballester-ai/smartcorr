@@ -5,6 +5,7 @@ from typing import Optional
 
 import pandas as pd
 import yaml
+from sqlalchemy import create_engine
 
 from src.database import get_connection
 
@@ -101,7 +102,7 @@ def _build_data_expressions(
 
 
 def _fetch_smartcorr_data(
-    conexao,
+    engine,
     query: str,
     janela_dias: int,
     data_base_expr: str,
@@ -112,7 +113,7 @@ def _fetch_smartcorr_data(
     """Busca dados principais da View SmartCorr.
 
     Args:
-        conexao: Conexão com o banco de dados
+        engine: SQLAlchemy engine
         query: Query SQL a ser executada
         janela_dias: Quantidade de dias para janela de consulta
         data_base_expr: Expressão SQL para data base
@@ -130,13 +131,13 @@ def _fetch_smartcorr_data(
         .replace("{programas_filter}", programas_filter)
         .replace("{canal_filter}", str(canal_filter))
     )
-    df = pd.read_sql(query, conexao)
+    df = pd.read_sql(query, engine)
     logger.info(f"Dados SmartCorr carregados: {len(df)} linhas, {len(df.columns)} colunas.")
     return df
 
 
 def _fetch_perda_log_data(
-    conexao,
+    engine,
     query: str,
     janela_dias: int,
     data_base_expr: str,
@@ -146,7 +147,7 @@ def _fetch_perda_log_data(
     """Busca dados complementares de perda de log (FatoTempoSistemas).
 
     Args:
-        conexao: Conexão com o banco de dados
+        engine: SQLAlchemy engine
         query: Query SQL a ser executada
         janela_dias: Quantidade de dias para janela de consulta
         data_base_expr: Expressão SQL para data base
@@ -162,7 +163,7 @@ def _fetch_perda_log_data(
         .replace("{data_limite_expr_perda_log}", data_limite_expr)
         .replace("{programas_filter}", programas_filter)
     )
-    df = pd.read_sql(query, conexao)
+    df = pd.read_sql(query, engine)
     logger.info(f"Dados Perda de Log carregados: {len(df)} linhas.")
     return df
 
@@ -206,7 +207,7 @@ def fetch_data(
 ) -> pd.DataFrame:
     """Busca e consolida dados da View SmartCorr e FatoTempoSistemas.
 
-    Executa queries no banco de dados SQL Server, aplica filtros de janela
+    Executa queries no banco de dados SQL Server via SQLAlchemy, aplica filtros de janela
     temporal configurados, realiza merge dos dados diários (broadcast)
     com os dados por intervalo e retorna o DataFrame consolidado.
 
@@ -229,12 +230,12 @@ def fetch_data(
         janela_dias, data_corte_final, mode, future_days
     )
 
-    logger.info(f"Iniciando carga de dados ({info_janela})...")
-    conexao = get_connection()
+    logger.info(f"Iniciando carga de dados via SQLAlchemy ({info_janela})...")
+    engine = get_connection()
 
     try:
         df_smartcorr = _fetch_smartcorr_data(
-            conexao, queries["smartcorr"], janela_dias,
+            engine, queries["smartcorr"], janela_dias,
             data_base_expr, data_limite_smartcorr,
             programas_filter, canal,
         )
@@ -243,7 +244,7 @@ def fetch_data(
             logger.warning("ATENÇÃO: Nenhum dado retornado! Verifique os filtros e a View no SQL Server.")
 
         df_perda_log = _fetch_perda_log_data(
-            conexao, queries["perda_log"], janela_dias,
+            engine, queries["perda_log"], janela_dias,
             data_base_expr, data_limite_perda_log,
             programas_filter,
         )
@@ -255,11 +256,11 @@ def fetch_data(
         if sort_cols:
             df = df.sort_values(by=sort_cols).reset_index(drop=True)
             logger.info(f"Dados consolidados e ordenados por: {', '.join(sort_cols)}")
-
+        
         return df
-
+    
     finally:
-        conexao.close()
+        engine.dispose()
 
 
 def save_data(data: pd.DataFrame, output_path: str) -> str:
