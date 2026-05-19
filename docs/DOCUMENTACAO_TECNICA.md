@@ -292,12 +292,12 @@ def main() -> None
 | #     | Feature                  | Categoria  | Importância | SQL Server |
 | ----- | ------------------------ | ---------- | ------------ | ---------- |
 | 1     | TME_Real_Avg_Lag_1       | Lag        | 36.2%        | ✅         |
-| 2     | Pressao_Prevista_Vol_HC  | Causa Raiz | 24.6%        | ❌         |
+| 2     | Pressao_Prevista_Vol_HC  | Saúde Operacional | 24.6%        | ❌         |
 | 3     | Desvio_Volume_Pct_Lag_1  | Lag        | 14.0%        | ✅         |
 | 4     | Vol_Previsto             | Meta       | 7.9%         | ✅         |
 | 5     | NewHire_Pct_Daily        | Perda Log  | 3.3%         | ✅         |
 | 6     | Delta_TMA_Lag_1          | Lag        | 2.7%         | ✅         |
-| 7     | Indicador_Sufoco         | Causa Raiz | 1.8%         | ❌         |
+| 7     | Indicador_Sufoco         | Saúde Operacional | 1.8%         | ❌         |
 | 8     | PerdaLog_Taxa_Daily      | Perda Log  | 1.4%         | ✅         |
 | 9     | Ferias_Qtd_Daily         | RH         | 1.3%         | ✅         |
 | 10    | Taxa_Abandono_Lag_1      | Lag        | 1.1%         | ✅         |
@@ -305,9 +305,9 @@ def main() -> None
 | 12    | HC_Previsto              | Meta       | 0.8%         | ✅         |
 | 13    | DiaSemana                | Contexto   | 0.6%         | ❌         |
 | 14    | Faltas_Qtd_Daily         | RH         | 0.6%         | ✅         |
-| 15    | Vol_Por_Agente           | Causa Raiz | 0.5%         | ❌         |
+| 15    | Vol_Por_Agente           | Saúde Operacional | 0.5%         | ❌         |
 | 16    | ABS_Taxa_Daily           | RH         | 0.5%         | ✅         |
-| 17    | Margem_Capacidade        | Causa Raiz | 0.5%         | ❌         |
+| 17    | Margem_Capacidade        | Saúde Operacional | 0.5%         | ❌         |
 | 18    | AgentIssues_Taxa_Daily   | Perda Log  | 0.4%         | ✅         |
 | 19    | Hora                     | Contexto   | 0.3%         | ❌         |
 | 20    | Turnover_Taxa_Daily      | RH         | 0.3%         | ✅         |
@@ -500,7 +500,7 @@ python -m src.inference.predict
 | `Volumetria`        | Vol_Previsto, Taxa_Abandono_Lag_1, Desvio_Volume_Pct_Lag_1     | Alto    |
 | `Pessoas`           | HC_Previsto, ABS_Taxa, Turnover, Ferias, Faltas, WAHA, NewHire | Médio  |
 | `TMA`               | Tempo_AHT_Previsto_Total, TME_Real_Avg_Lag_1, Delta_TMA_Lag_1  | Alto    |
-| `Causas_Raiz`       | Pressao_Prevista_Vol_HC, Indicador_Sufoco, Margem_Capacidade   | Alto    |
+| `Saude_Operacional`       | Pressao_Prevista_Vol_HC, Indicador_Sufoco, Margem_Capacidade   | Alto    |
 | `Contexto_Temporal` | Hora, DiaSemana                                                | Baixo   |
 
 ---

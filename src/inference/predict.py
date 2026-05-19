@@ -33,7 +33,7 @@ PILARES: dict[str, list[str]] = {
         "TME_Real_Avg_Lag_1",
         "Delta_TMA_Lag_1",
     ],
-    "Causas_Raiz": [
+    "Saude_Operacional": [
         "Pressao_Prevista_Vol_HC",
         "Indicador_Sufoco",
         "Vol_Por_Agente",
@@ -139,7 +139,7 @@ def processar_previsoes(
         impacto_volumetria = sum(valores_shap.get(f, 0) for f in PILARES['Volumetria'])
         impacto_pessoas = sum(valores_shap.get(f, 0) for f in PILARES['Pessoas'])
         impacto_tma = sum(valores_shap.get(f, 0) for f in PILARES['TMA'])
-        impacto_causas = sum(valores_shap.get(f, 0) for f in PILARES['Causas_Raiz'])
+        impacto_saude = sum(valores_shap.get(f, 0) for f in PILARES['Saude_Operacional'])
         
         # Une pilares de contexto (Temporal + Operacional)
         impacto_contexto = sum(valores_shap.get(f, 0) for f in PILARES['Contexto_Temporal'])
@@ -195,7 +195,7 @@ def processar_previsoes(
             impacto_volumetria,
             impacto_pessoas,
             impacto_tma,
-            impacto_causas,
+            impacto_saude,
             impacto_contexto,
             ofensores[0]["nome"], ofensores[0]["pilar"], ofensores[0]["impacto"],
             ofensores[1]["nome"], ofensores[1]["pilar"], ofensores[1]["impacto"],
@@ -226,7 +226,7 @@ def salvar_no_banco(tuplas_dados: list[tuple]) -> None:
     ([DataRef], [Intervalo], [CodPrograma], [Canal], [NS_Previsto_SmartCorr],
      [Vol_Previsto], [HC_Previsto], [TMA_Previsto_Avg], [NS_Lag_1],
      [TME_Real_Lag_1], [Desvio_Volume_Pct_Lag_1],
-     [Impacto_Pilar_Volumetria], [Impacto_Pilar_Pessoas], [Impacto_Pilar_TMA], [Impacto_Pilar_Causas], [Impacto_Pilar_Contexto],
+     [Impacto_Pilar_Volumetria], [Impacto_Pilar_Pessoas], [Impacto_Pilar_TMA], [Impacto_Pilar_Saude], [Impacto_Pilar_Contexto],
      [Ofensor_1_Nome], [Ofensor_1_Pilar], [Ofensor_1_Impacto],
      [Ofensor_2_Nome], [Ofensor_2_Pilar], [Ofensor_2_Impacto],
      [Ofensor_3_Nome], [Ofensor_3_Pilar], [Ofensor_3_Impacto],
