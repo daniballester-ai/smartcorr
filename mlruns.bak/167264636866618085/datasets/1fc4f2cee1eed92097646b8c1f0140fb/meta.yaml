@@ -1,0 +1,9 @@
+digest: f355d6af
+name: dataset
+profile: '{"features_shape": [585, 33], "features_size": 19305, "features_nbytes":
+  77220}'
+schema: '{"mlflow_tensorspec": {"features": "[{\"type\": \"tensor\", \"tensor-spec\":
+  {\"dtype\": \"float32\", \"shape\": [-1, 33]}}]", "targets": null}}'
+source: '{"tags": {"mlflow.user": "DANI", "mlflow.source.name": "src\\model_training\\train_model.py",
+  "mlflow.source.type": "LOCAL", "mlflow.source.git.commit": "c0c67e133653c946f4d12360d69155fcb91cecb1"}}'
+source_type: code

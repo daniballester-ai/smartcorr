@@ -9,16 +9,28 @@ logger = logging.getLogger(__name__)
 def load_config():
     """Carrega as configurações do arquivo params.yaml"""
     config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'params.yaml')
-    with open(config_path, 'r') as file:
+    with open(config_path, 'r', encoding='utf-8') as file:
         return yaml.safe_load(file)
 
 def get_connection_string():
-    """Gera a string de conexão baseada em configurações e credenciais."""
+    """Gera a string de conexão SQLAlchemy baseada em configurações e credenciais."""
     
-    # Tenta carregar credenciais locais
+    # 1. Se houver uma string de conexão explícita via variável de ambiente (DataCore)
+    env_conn_str = os.getenv('DB_CONNECTION_STRING')
+    if env_conn_str and env_conn_str != 'None':
+        # Clean quotes if passed by the CLI
+        env_conn_str = env_conn_str.strip("'\"")
+        logger.info("Usando connection string fornecida via ambiente (DataCore).")
+        # Convert ODBC to SQLAlchemy format if needed
+        if 'DRIVER=' in env_conn_str.upper():
+            from urllib.parse import quote_plus
+            logger.info("Convertendo ODBC string para formato SQLAlchemy URL...")
+            return f"mssql+pyodbc:///?odbc_connect={quote_plus(env_conn_str)}"
+        return env_conn_str
+    
+    # 2. Tenta carregar credenciais locais
     try:
         # Adiciona o diretório atual ao path para importar credencial se necessário
-        # Assumindo que credencial.py está no mesmo nível deste script ou root
         import sys
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from credencial import SERVER_DEST, DATABASE_DEST, USERNAME_DEST, PASSWORD_DEST
@@ -28,39 +40,47 @@ def get_connection_string():
         DATABASE_DEST = os.getenv('DB_NAME', 'OdsCorp')
         USERNAME_DEST = os.getenv('DB_USER', None)
         PASSWORD_DEST = os.getenv('DB_PASS', None)
-
-    # Lógica de conexão (Revertido para padrão do legado SmartCorr_Engine.py)
-    driver = 'SQL Server' # Driver genérico que funciona no ambiente do usuário
     
-    if not USERNAME_DEST or USERNAME_DEST == 'None':
-        # Autenticação Windows
-        conn_str = (
-            f'DRIVER={driver};'
-            f'SERVER={SERVER_DEST};'
-            f'DATABASE={DATABASE_DEST};'
-            f'Trusted_Connection=yes;'
+    # Criar string SQLAlchemy
+    if USERNAME_DEST and USERNAME_DEST != 'None':
+        # Autenticação SQL - SQLAlchemy com pyodbc
+        from urllib.parse import quote_plus
+        odbc_str = (
+            f"DRIVER={{SQL Server}};"
+            f"SERVER={SERVER_DEST};"
+            f"DATABASE={DATABASE_DEST};"
+            f"UID={USERNAME_DEST};"
+            f"PWD={PASSWORD_DEST};"
         )
-        logger.info(f"Configurando conexão (Win Auth - Legacy Driver): Server={SERVER_DEST}, DB={DATABASE_DEST}")
+        conn_str = f"mssql+pyodbc:///?odbc_connect={quote_plus(odbc_str)}"
+        logger.info(f"Configurando conexão SQLAlchemy (SQL Auth): Server={SERVER_DEST}, DB={DATABASE_DEST}")
     else:
-        # Autenticação SQL
-        conn_str = (
-            f'DRIVER={driver};'
-            f'SERVER={SERVER_DEST};'
-            f'DATABASE={DATABASE_DEST};'
-            f'UID={USERNAME_DEST};'
-            f'PWD={PASSWORD_DEST};'
+        # Windows Auth - pode falhar se domínio não for confiável
+        from urllib.parse import quote_plus
+        odbc_str = (
+            f"DRIVER={{SQL Server}};"
+            f"SERVER={SERVER_DEST};"
+            f"DATABASE={DATABASE_DEST};"
+            f"Trusted_Connection=yes;"
         )
-        logger.info(f"Configurando conexão (SQL Auth - Legacy Driver): Server={SERVER_DEST}, DB={DATABASE_DEST}")
+        conn_str = f"mssql+pyodbc:///?odbc_connect={quote_plus(odbc_str)}"
+        logger.warning(
+            f"Usando Windows Auth (Server={SERVER_DEST}, DB={DATABASE_DEST}). "
+            f"Se falhar, defina as variáveis de ambiente DB_USER e DB_PASS "
+            f"no DataCore para usar SQL Authentication."
+        )
     
     return conn_str
 
 def get_connection():
-    """Retorna um objeto de conexão pyodbc."""
+    """Retorna um objeto de conexão SQLAlchemy engine."""
+    from sqlalchemy import create_engine
     conn_str = get_connection_string()
     try:
-        # Timeout aumentado para 10 minutos (600s) devido ao volume de dados
-        conn = pyodbc.connect(conn_str, timeout=600)
-        return conn
+        # Criar engine SQLAlchemy com timeout
+        engine = create_engine(conn_str, pool_timeout=600)
+        logger.info("Conexão SQLAlchemy estabelecida com sucesso.")
+        return engine
     except Exception as e:
         logger.error(f"Erro ao conectar ao banco de dados: {e}")
         raise

@@ -1,0 +1,42 @@
+artifact_path: model
+flavors:
+  python_function:
+    data: model.xgb
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.9.13
+  xgboost:
+    code: null
+    data: model.xgb
+    model_class: xgboost.sklearn.XGBRegressor
+    model_format: xgb
+    xgb_version: 2.1.4
+mlflow_version: 2.15.0
+model_size_bytes: 212805
+model_uuid: ddcfa9de61d348758f12f03f21a40afc
+run_id: 056e8cf27d374a5aad04dc29003ba308
+signature:
+  inputs: '[{"type": "double", "name": "Vol_Previsto", "required": true}, {"type":
+    "double", "name": "HC_Previsto", "required": true}, {"type": "double", "name":
+    "Tempo_AHT_Previsto_Total", "required": true}, {"type": "long", "name": "Hora",
+    "required": true}, {"type": "long", "name": "DiaSemana", "required": true}, {"type":
+    "double", "name": "ABS_Taxa_Daily", "required": true}, {"type": "double", "name":
+    "Turnover_Taxa_Daily", "required": true}, {"type": "long", "name": "Ferias_Qtd_Daily",
+    "required": true}, {"type": "long", "name": "Faltas_Qtd_Daily", "required": true},
+    {"type": "double", "name": "TME_Real_Avg_Lag_1", "required": true}, {"type": "double",
+    "name": "Desvio_Volume_Pct_Lag_1", "required": true}, {"type": "double", "name":
+    "Delta_TMA_Lag_1", "required": true}, {"type": "double", "name": "Pressao_Prevista_Vol_HC",
+    "required": true}, {"type": "double", "name": "Indicador_Sufoco", "required":
+    true}, {"type": "double", "name": "Vol_Por_Agente", "required": true}, {"type":
+    "double", "name": "Margem_Capacidade", "required": true}, {"type": "double", "name":
+    "PerdaLog_Taxa_Daily", "required": true}, {"type": "double", "name": "NewHire_Pct_Daily",
+    "required": true}, {"type": "double", "name": "AgentIssues_Taxa_Daily", "required":
+    true}, {"type": "double", "name": "NS_Media_Movel_3", "required": true}, {"type":
+    "double", "name": "NS_Media_Movel_6", "required": true}, {"type": "double", "name":
+    "NS_Std_Movel_6", "required": true}, {"type": "double", "name": "Programa_Target_Enc",
+    "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float32", "shape": [-1]}}]'
+  params: null
+utc_time_created: '2026-04-20 14:51:55.401261'

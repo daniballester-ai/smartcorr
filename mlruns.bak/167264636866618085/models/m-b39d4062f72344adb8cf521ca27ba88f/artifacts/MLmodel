@@ -1,0 +1,28 @@
+artifact_path: file:///C:/TP_ML/BI_Ferramenta_Correlacao_Inteligente/SmartCorr/mlruns/167264636866618085/models/m-b39d4062f72344adb8cf521ca27ba88f/artifacts
+flavors:
+  python_function:
+    data: model.ubj
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.13.3
+  xgboost:
+    code: null
+    data: model.ubj
+    model_class: xgboost.sklearn.XGBRegressor
+    model_format: ubj
+    xgb_version: 3.2.0
+is_signature_from_type_hint: false
+mlflow_version: 3.11.1
+model_id: m-b39d4062f72344adb8cf521ca27ba88f
+model_size_bytes: 208541
+model_uuid: m-b39d4062f72344adb8cf521ca27ba88f
+prompts: null
+run_id: a2a7102f35564843879e3937ce5a9a35
+signature:
+  inputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float64", "shape": [-1, 27]}}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float32", "shape": [-1]}}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2026-04-22 11:56:27.243385'

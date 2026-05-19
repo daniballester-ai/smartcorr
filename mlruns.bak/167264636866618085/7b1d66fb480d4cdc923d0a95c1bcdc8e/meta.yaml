@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/TP_ML/BI_Ferramenta_Correlacao_Inteligente/SmartCorr/mlruns/167264636866618085/7b1d66fb480d4cdc923d0a95c1bcdc8e/artifacts
+end_time: 1776704224851
+entry_point_name: ''
+experiment_id: '167264636866618085'
+lifecycle_stage: active
+run_id: 7b1d66fb480d4cdc923d0a95c1bcdc8e
+run_name: programa_589361
+run_uuid: 7b1d66fb480d4cdc923d0a95c1bcdc8e
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776704170488
+status: 3
+tags: []
+user_id: DANI

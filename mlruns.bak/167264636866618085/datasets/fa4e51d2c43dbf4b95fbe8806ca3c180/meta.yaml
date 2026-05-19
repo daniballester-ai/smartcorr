@@ -1,0 +1,8 @@
+digest: 9ef270bd
+name: validation_0
+profile: '{"features_shape": [97, 27], "features_size": 2619, "features_nbytes": 10476}'
+schema: '{"mlflow_tensorspec": {"features": "[{\"type\": \"tensor\", \"tensor-spec\":
+  {\"dtype\": \"float32\", \"shape\": [-1, 27]}}]", "targets": null}}'
+source: '{"tags": {"mlflow.user": "DANI", "mlflow.source.name": "C:\\TP_ML\\BI_Ferramenta_Correlacao_Inteligente\\SmartCorr\\src\\model_training\\train_model.py",
+  "mlflow.source.type": "LOCAL", "mlflow.source.git.commit": "c0c67e133653c946f4d12360d69155fcb91cecb1"}}'
+source_type: code

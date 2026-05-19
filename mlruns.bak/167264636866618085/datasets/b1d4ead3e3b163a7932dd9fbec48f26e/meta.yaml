@@ -1,0 +1,32 @@
+digest: 1a6d24dc
+name: dataset
+profile: '{"num_rows": 488, "num_elements": 16104}'
+schema: '{"mlflow_colspec": [{"type": "double", "name": "Vol_Previsto", "required":
+  true}, {"type": "double", "name": "HC_Previsto", "required": true}, {"type": "double",
+  "name": "Tempo_AHT_Previsto_Total", "required": true}, {"type": "long", "name":
+  "Hora", "required": true}, {"type": "long", "name": "DiaSemana", "required": true},
+  {"type": "double", "name": "ABS_Taxa_Daily", "required": true}, {"type": "double",
+  "name": "Turnover_Taxa_Daily", "required": true}, {"type": "long", "name": "Ferias_Qtd_Daily",
+  "required": true}, {"type": "long", "name": "Faltas_Qtd_Daily", "required": true},
+  {"type": "double", "name": "TME_Real_Avg_Lag_1", "required": true}, {"type": "double",
+  "name": "Desvio_Volume_Pct_Lag_1", "required": true}, {"type": "double", "name":
+  "Delta_TMA_Lag_1", "required": true}, {"type": "double", "name": "Pressao_Prevista_Vol_HC",
+  "required": true}, {"type": "double", "name": "Indicador_Sufoco", "required": true},
+  {"type": "double", "name": "Vol_Por_Agente", "required": true}, {"type": "double",
+  "name": "Margem_Capacidade", "required": true}, {"type": "double", "name": "PerdaLog_Taxa_Daily",
+  "required": true}, {"type": "double", "name": "NewHire_Pct_Daily", "required": true},
+  {"type": "double", "name": "AgentIssues_Taxa_Daily", "required": true}, {"type":
+  "double", "name": "NS_Media_Movel_3", "required": true}, {"type": "double", "name":
+  "NS_Media_Movel_6", "required": true}, {"type": "double", "name": "NS_Std_Movel_6",
+  "required": true}, {"type": "double", "name": "NS_Lag_1", "required": true}, {"type":
+  "double", "name": "NS_Lag_2", "required": true}, {"type": "double", "name": "NS_Lag_3",
+  "required": true}, {"type": "double", "name": "Programa_Target_Enc", "required":
+  true}, {"type": "long", "name": "Dia_Mes", "required": true}, {"type": "long", "name":
+  "Semana_Mes", "required": true}, {"type": "long", "name": "Dia_Semana", "required":
+  true}, {"type": "double", "name": "Is_Inicio_Fim_Mes", "required": true}, {"type":
+  "double", "name": "Is_Segunda_Sexta", "required": true}, {"type": "double", "name":
+  "Is_Fim_Semana", "required": true}, {"type": "long", "name": "Hora_Dia_Ciclo", "required":
+  true}]}'
+source: '{"tags": {"mlflow.user": "DANI", "mlflow.source.name": "src\\model_training\\train_model.py",
+  "mlflow.source.type": "LOCAL", "mlflow.source.git.commit": "c0c67e133653c946f4d12360d69155fcb91cecb1"}}'
+source_type: code

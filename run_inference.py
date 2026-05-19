@@ -1,58 +1,112 @@
-import logging
-import sys
 import os
-from datetime import datetime
+import sys
+from argparse import ArgumentParser
 
-# Garante que o diretório raiz está no path
+# Ensure the root directory is in the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Configuração de Logs Específico de Inferência
+# Enable venv path resolution dynamically for Datacore
+venv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "Lib", "site-packages")
+if venv_path not in sys.path:
+    sys.path.insert(0, venv_path)
+
+import yaml
+import logging
+
+# Configuração de Logs
 logging_dir = 'logs'
 os.makedirs(logging_dir, exist_ok=True)
-log_file = os.path.join(logging_dir, f'smartcorr_inference_{datetime.now().strftime("%Y%m%d_%H%M")}.log')
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file, encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
-logger = logging.getLogger("SmartCorr_Inference")
+logger = logging.getLogger("SmartCorr_Inference_Datacore")
+
+def update_params_mode(mode="inference"):
+    """Update params.yaml with the required mode for the pipeline."""
+    params_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "params.yaml")
+    if os.path.exists(params_path):
+        with open(params_path, "r", encoding="utf-8") as f:
+            params = yaml.safe_load(f)
+            
+        if params.get("data", {}).get("mode") != mode:
+            params["data"]["mode"] = mode
+            with open(params_path, "w", encoding="utf-8") as f:
+                yaml.dump(params, f, sort_keys=False, allow_unicode=True)
+            logger.info(f"params.yaml updated to mode: {mode}")
 
 def main():
-    logger.info("=== INICIANDO PIPELINE DE INFERÊNCIA SMARTCORR ===")
+    logger.info("=== INICIANDO PIPELINE SMARTCORR (INFERÊNCIA VIA DATACORE) ===")
+    
+    # Force params.yaml to inference mode
+    update_params_mode("inference")
     
     try:
-        # Precisa puxar os dados mais recentes do banco a cada meia hora
-        logger.info("--- Passo 1: Data Loading (Buscando real e metas) ---")
+        # Import stages
         from src.data_loading import load_data
+        from src.data_preprocessing import clean_data
+        from src.feature_engineering import build_features
+        from src.inference import predict
+        import pandas as pd
+        
+        logger.info("--- Estágio 1: Data Loading ---")
         load_data.main()
         
-        # Limpar nulos/estruturar campos lógicos
-        logger.info("--- Passo 2: Preprocessing ---")
-        from src.preprocessing import clean_data
+        logger.info("--- Estágio 2: Data Preprocessing ---")
         clean_data.main()
         
-        # Criar as nossas engenharia de features (Lags, Taxas de Fila, Erros)
-        logger.info("--- Passo 3: Feature Engineering ---")
-        from src.feature_engineering import build_features
+        logger.info("--- Estágio 3: Feature Engineering ---")
         build_features.main()
         
-        # ATENÇÃO: Pula o Treinamento! Passamos direto para a Projeção (Predict)
-        # 3. Pipeline de Inferência
-        logger.info("--- Passo 4: Inference (Modelo prevendo Novos Horários) ---")
-        from src.inference import predict
+        logger.info("--- Estágio 4: Inference ---")
         predict.main()
         
-        logger.info("=== INFERÊNCIA EXECUTADA COM SUCESSO. Base ODS Atualizada. ===")
+        logger.info("=== INFERÊNCIA EXECUTADA COM SUCESSO ===")
+        
+        # Read the future dataset to return the number of rows processed to Datacore
+        params_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "params.yaml")
+        rows = 0
+        if os.path.exists(params_path):
+            with open(params_path, "r", encoding="utf-8") as f:
+                params = yaml.safe_load(f)
+                future_path = params.get("data", {}).get("processed_future_path")
+                if future_path and os.path.exists(future_path):
+                    df = pd.read_csv(future_path)
+                    rows = len(df)
+                    
+        return rows
 
     except Exception as e:
-        logger.error(f"Erro fatal durante a inferência: {e}", exc_info=True)
-        # Usado para agendadores segurarem o erro na tela (ex: Task Scheduler)
-        input("Pressione Enter para fechar...") 
-        sys.exit(1)
+        logger.error(f"FATAL ERROR no Pipeline de Inferência: {e}", exc_info=True)
+        raise
 
 if __name__ == "__main__":
-    main()
+    argParser = ArgumentParser('SmartCorr - Inferência Preditiva')
+    argParser.add_argument('--InitialDateCtrl', help='Data Inicial de Proceso.', required=False)
+    argParser.add_argument('--FinalDateCtrl', help='Data Final de Proceso.', required=False)
+    argParser.add_argument('--ProcessTable', help='Tabela do Processo.', required=False)
+    argParser.add_argument('--ProcessKey', help='Número do Processo no DataCore.', required=False)
+    argParser.add_argument('--connectionString', help='Connection string for the database.', required=False, type=str)
+    
+    args, unknown = argParser.parse_known_args()
+    
+    # Injetar a connection string do DataCore nas variáveis de ambiente, se fornecida
+    if args.connectionString:
+        os.environ['DB_CONNECTION_STRING'] = str(args.connectionString)
+    else:
+        logger.info("Execução local: Nenhuma connectionString fornecida via CLI. Usando fallback do database.py.")
+    
+    try:
+        rows = main()
+        sys.stdout.write(str(rows))
+        sys.stdout.flush()
+        sys.exit(0x00)
+    except Exception as error:
+        exc_type, value, traceback = sys.exc_info()
+        errmessage = f"Failed: [{exc_type.__name__}] {str(error)[:255]}"
+        sys.stdout.write(errmessage)
+        sys.stdout.flush()
+        sys.exit(0x01)

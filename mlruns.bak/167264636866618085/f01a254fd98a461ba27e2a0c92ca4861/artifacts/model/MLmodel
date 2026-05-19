@@ -1,0 +1,47 @@
+artifact_path: model
+flavors:
+  python_function:
+    data: model.xgb
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.9.13
+  xgboost:
+    code: null
+    data: model.xgb
+    model_class: xgboost.sklearn.XGBRegressor
+    model_format: xgb
+    xgb_version: 2.1.4
+mlflow_version: 2.15.0
+model_size_bytes: 337346
+model_uuid: 53d0507c9c624d808695a045cc6a8a14
+run_id: f01a254fd98a461ba27e2a0c92ca4861
+signature:
+  inputs: '[{"type": "double", "name": "Vol_Previsto", "required": true}, {"type":
+    "double", "name": "HC_Previsto", "required": true}, {"type": "double", "name":
+    "Tempo_AHT_Previsto_Total", "required": true}, {"type": "long", "name": "Hora",
+    "required": true}, {"type": "long", "name": "DiaSemana", "required": true}, {"type":
+    "double", "name": "ABS_Taxa_Daily", "required": true}, {"type": "double", "name":
+    "Turnover_Taxa_Daily", "required": true}, {"type": "long", "name": "Ferias_Qtd_Daily",
+    "required": true}, {"type": "long", "name": "Faltas_Qtd_Daily", "required": true},
+    {"type": "long", "name": "WAHA_Qtd_Daily", "required": true}, {"type": "double",
+    "name": "Taxa_Abandono_Lag_1", "required": true}, {"type": "double", "name": "TME_Real_Avg_Lag_1",
+    "required": true}, {"type": "double", "name": "Taxa_Ocupacao_Lag_1", "required":
+    true}, {"type": "double", "name": "Taxa_Pausa_Tecnica_Lag_1", "required": true},
+    {"type": "double", "name": "Taxa_Pausa_Pessoal_Lag_1", "required": true}, {"type":
+    "double", "name": "Taxa_Pausa_Gestao_Lag_1", "required": true}, {"type": "double",
+    "name": "Desvio_HC_Pct_Lag_1", "required": true}, {"type": "double", "name": "Desvio_Volume_Pct_Lag_1",
+    "required": true}, {"type": "double", "name": "Delta_TMA_Lag_1", "required": true},
+    {"type": "double", "name": "Pressao_Prevista_Vol_HC", "required": true}, {"type":
+    "double", "name": "Indicador_Sufoco", "required": true}, {"type": "double", "name":
+    "Vol_Por_Agente", "required": true}, {"type": "double", "name": "Margem_Capacidade",
+    "required": true}, {"type": "double", "name": "Desvio_Escala_Pct", "required":
+    true}, {"type": "double", "name": "Razao_Escala", "required": true}, {"type":
+    "double", "name": "Taxa_Sobrecarga", "required": true}, {"type": "double", "name":
+    "PerdaLog_Taxa_Daily", "required": true}, {"type": "double", "name": "TechIssues_Taxa_Daily",
+    "required": true}, {"type": "double", "name": "NewHire_Pct_Daily", "required":
+    true}, {"type": "double", "name": "AgentIssues_Taxa_Daily", "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float32", "shape": [-1]}}]'
+  params: null
+utc_time_created: '2026-04-13 18:33:15.425365'

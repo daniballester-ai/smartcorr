@@ -1,0 +1,62 @@
+stages:
+  load_data:
+    always_changed: true
+    cmd: python -m src.data_loading.load_data
+    deps:
+      - src/data_loading/load_data.py
+      - config/queries.ini
+    outs:
+      - data/raw/raw_history.csv
+
+  preprocess_data:
+    always_changed: true
+    cmd: python -m src.data_preprocessing.clean_data
+    deps:
+      - src/data_preprocessing/clean_data.py
+      - data/raw/raw_history.csv
+    outs:
+      - data/interim/clean_data.csv
+    params:
+      - data.mode
+
+  engineer_features:
+    always_changed: true
+    cmd: python -m src.feature_engineering.build_features
+    deps:
+      - src/feature_engineering/build_features.py
+      - data/interim/clean_data.csv
+    outs:
+      - data/processed/train_data.csv
+      - data/processed/test_data.csv
+      - data/processed/future_data.csv
+      - models/target_encoding.json
+    params:
+      - data.mode
+      - data.test_size
+      - data.features
+      - data.target
+
+  train:
+    cmd: python -m src.model_training.train_model
+    always_changed: true
+    deps:
+      - src/model_training/train_model.py
+      - data/processed/train_data.csv
+      - data/processed/test_data.csv
+    metrics:
+      - metrics/train_metrics.json:
+          cache: false
+    params:
+      - data.programas
+      - model.params.n_estimators
+      - model.params.max_depth
+      - model.params.learning_rate
+      - model.params.alpha
+      - model.params.reg_lambda
+      - model.params.colsample_bytree
+      - model.params.subsample
+      - model.params.random_state
+      - model.params.early_stopping_rounds
+      - model.min_registros_operacionais
+
+

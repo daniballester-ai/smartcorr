@@ -31,8 +31,8 @@ def main():
         load_data.main()
         
         # Limpeza
-        logger.info("--- Estágio 2: Preprocessing ---")
-        from src.preprocessing import clean_data
+        logger.info("--- Estágio 2: Data Preprocessing ---")
+        from src.data_preprocessing import clean_data
         clean_data.main()
         
         # Feature Engineering

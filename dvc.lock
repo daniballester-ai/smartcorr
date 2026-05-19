@@ -1,0 +1,138 @@
+schema: '2.0'
+stages:
+  load_data:
+    cmd: python -m src.data_loading.load_data
+    deps:
+    - path: config/queries.ini
+      hash: md5
+      md5: f5670078abd7b0bc225e215a756a10b5
+      size: 3063
+    - path: src/data_loading/load_data.py
+      hash: md5
+      md5: fad5aaa9f76fd5f08770be8434769320
+      size: 10124
+    outs:
+    - path: data/raw/raw_history.csv
+      hash: md5
+      md5: 82f4e653e1779a3c0f868d2ba2600bdb
+      size: 693193
+  preprocess_data:
+    cmd: python -m src.data_preprocessing.clean_data
+    deps:
+    - path: data/raw/raw_history.csv
+      hash: md5
+      md5: 82f4e653e1779a3c0f868d2ba2600bdb
+      size: 693193
+    - path: src/data_preprocessing/clean_data.py
+      hash: md5
+      md5: b7f9a2ec864a6a694b902a37938b507a
+      size: 12294
+    params:
+      params.yaml:
+        data.mode: training
+    outs:
+    - path: data/interim/clean_data.csv
+      hash: md5
+      md5: 782f33686dbc7076491e104d13b2b202
+      size: 157941
+  engineer_features:
+    cmd: python -m src.feature_engineering.build_features
+    deps:
+    - path: data/interim/clean_data.csv
+      hash: md5
+      md5: 782f33686dbc7076491e104d13b2b202
+      size: 157941
+    - path: src/feature_engineering/build_features.py
+      hash: md5
+      md5: d1c6703552d14eeab75532bb12b23f04
+      size: 24541
+    params:
+      params.yaml:
+        data.features:
+        - Vol_Previsto
+        - HC_Previsto
+        - Tempo_AHT_Previsto_Total
+        - Hora
+        - DiaSemana
+        - ABS_Taxa_Daily
+        - Turnover_Taxa_Daily
+        - Ferias_Qtd_Daily
+        - Faltas_Qtd_Daily
+        - TME_Real_Avg_Lag_1
+        - Desvio_Volume_Pct_Lag_1
+        - Delta_TMA_Lag_1
+        - Pressao_Prevista_Vol_HC
+        - Indicador_Sufoco
+        - Vol_Por_Agente
+        - Margem_Capacidade
+        - PerdaLog_Taxa_Daily
+        - NewHire_Pct_Daily
+        - AgentIssues_Taxa_Daily
+        - NS_Media_Movel_3
+        - NS_Media_Movel_6
+        - NS_Std_Movel_6
+        - NS_Lag_1
+        - NS_Lag_2
+        - NS_Lag_3
+        - Programa_Target_Enc
+        - Dia_Mes
+        - Semana_Mes
+        - Dia_Semana
+        - Is_Inicio_Fim_Mes
+        - Is_Segunda_Sexta
+        - Is_Fim_Semana
+        - Hora_Dia_Ciclo
+        data.mode: training
+        data.target: NS_Residuo
+        data.test_size: 0.2
+    outs:
+    - path: data/processed/future_data.csv
+      hash: md5
+      md5: 4a9f0f0627a090f9a4a30d5f708645ee
+      size: 1474
+    - path: data/processed/test_data.csv
+      hash: md5
+      md5: 7eedba3caea7c3f7842bda111bb16d0d
+      size: 79275
+    - path: data/processed/train_data.csv
+      hash: md5
+      md5: 5524076ff894d10e1bb6168fe7ba2335
+      size: 350101
+    - path: models/target_encoding.json
+      hash: md5
+      md5: d2dad2e6a8a2ead2491b170df0351447
+      size: 79
+  train:
+    cmd: python -m src.model_training.train_model
+    deps:
+    - path: data/processed/test_data.csv
+      hash: md5
+      md5: 7eedba3caea7c3f7842bda111bb16d0d
+      size: 79275
+    - path: data/processed/train_data.csv
+      hash: md5
+      md5: 5524076ff894d10e1bb6168fe7ba2335
+      size: 350101
+    - path: src/model_training/train_model.py
+      hash: md5
+      md5: c120159a6b7ec4b76d652628c1af45b9
+      size: 37353
+    params:
+      params.yaml:
+        data.programas:
+        - 589361
+        model.min_registros_operacionais: 50
+        model.params.alpha: 20
+        model.params.colsample_bytree: 0.8
+        model.params.early_stopping_rounds: 30
+        model.params.learning_rate: 0.05
+        model.params.max_depth: 3
+        model.params.n_estimators: 300
+        model.params.random_state: 42
+        model.params.reg_lambda: 30
+        model.params.subsample: 0.7
+    outs:
+    - path: metrics/train_metrics.json
+      hash: md5
+      md5: bfa8017e9fb86bee929b2d1a1d5862f8
+      size: 471

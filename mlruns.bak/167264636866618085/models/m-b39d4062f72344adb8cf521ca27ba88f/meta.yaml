@@ -1,0 +1,10 @@
+artifact_location: file:///C:/TP_ML/BI_Ferramenta_Correlacao_Inteligente/SmartCorr/mlruns/167264636866618085/models/m-b39d4062f72344adb8cf521ca27ba88f/artifacts
+creation_timestamp: 1776858986950
+experiment_id: '167264636866618085'
+last_updated_timestamp: 1776858999536
+model_id: m-b39d4062f72344adb8cf521ca27ba88f
+model_type: null
+name: model
+source_run_id: a2a7102f35564843879e3937ce5a9a35
+status: 2
+status_message: null
