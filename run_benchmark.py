@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import sys
+import time
 from argparse import ArgumentParser
 from datetime import datetime, timedelta
 
@@ -27,6 +28,31 @@ import yaml
 
 # Garantir que o diretório raiz esteja no path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+PILARES: dict = {
+    "Volumetria": [
+        "Vol_Previsto", "Desvio_Volume_Pct_Lag_1",
+    ],
+    "Pessoas": [
+        "HC_Previsto", "ABS_Taxa_Daily", "Turnover_Taxa_Daily",
+        "Ferias_Qtd_Daily", "Faltas_Qtd_Daily", "PerdaLog_Taxa_Daily",
+        "NewHire_Pct_Daily", "AgentIssues_Taxa_Daily",
+    ],
+    "TMA": [
+        "Tempo_AHT_Previsto_Total", "TME_Real_Avg_Lag_1", "Delta_TMA_Lag_1",
+    ],
+    "Saude_Operacional": [
+        "Pressao_Prevista_Vol_HC", "Indicador_Sufoco",
+        "Vol_Por_Agente", "Margem_Capacidade", "Ocupacao_Sintetica",
+    ],
+    "Contexto_Temporal": [
+        "Hora", "DiaSemana", "Dia_Mes", "Semana_Mes",
+        "Dia_Semana", "Is_Inicio_Fim_Mes", "Is_Segunda_Sexta",
+    ],
+    "Contexto_Operacional": [
+        "Meta_Intervalo_SLA", "Meta_Intervalo_SLA_Canal",
+    ],
+}
 
 # Configuração de Logs
 logging.basicConfig(
@@ -168,7 +194,8 @@ def filtrar_janela_avaliacao(
 
 
 def gerar_predicoes(
-    df: pd.DataFrame, config: dict
+    df: pd.DataFrame, config: dict,
+    suffix: str = "", diretorio_saida: str = "reports/benchmark"
 ) -> pd.DataFrame:
     """Gera predições usando os modelos treinados para cada programa.
 
@@ -249,6 +276,122 @@ def gerar_predicoes(
 
         df_prog["NS_Previsto_SmartCorr"] = predicoes
 
+        # Calcular Impacto_Pilar via SHAP (vectorized)
+        try:
+            import shap
+            features_shap = disponveis if hasattr(modelo, "feature_names_in_") else features_prog
+            X_shap = df_prog[features_shap]
+            explainer = shap.TreeExplainer(modelo)
+            shap_values = explainer.shap_values(X_shap)
+
+            for pilar_nome, vars_pilar in PILARES.items():
+                col_name = f"Impacto_Pilar_{pilar_nome}"
+                indices = [i for i, f in enumerate(features_shap) if f in vars_pilar]
+                if indices:
+                    df_prog[col_name] = shap_values[:, indices].sum(axis=1)
+                else:
+                    df_prog[col_name] = 0.0
+
+            # Contexto = Contexto_Temporal + Contexto_Operacional
+            ctx_vars = PILARES.get("Contexto_Temporal", []) + PILARES.get("Contexto_Operacional", [])
+            ctx_indices = [i for i, f in enumerate(features_shap) if f in ctx_vars]
+            if ctx_indices:
+                df_prog["Impacto_Pilar_Contexto"] = shap_values[:, ctx_indices].sum(axis=1)
+            else:
+                df_prog["Impacto_Pilar_Contexto"] = 0.0
+
+            # Calcular Ofensores e Impulsionadores (Top 3 SHAP)
+            feat_to_pilar = {}
+            for p, feats in PILARES.items():
+                for f in feats:
+                    feat_to_pilar[f] = p
+
+            ofensor_data = {r: {"nome": [], "pilar": [], "impacto": []} for r in range(3)}
+            imp_data = {r: {"nome": [], "pilar": [], "impacto": []} for r in range(3)}
+
+            for i in range(len(df_prog)):
+                vals = dict(zip(features_shap, shap_values[i]))
+                sorted_items = sorted(vals.items(), key=lambda x: abs(x[1]), reverse=True)
+                ofensores = []
+                impulsionadores = []
+                for feat, val in sorted_items:
+                    p_desc = feat_to_pilar.get(feat, "Outros")
+                    if val < -0.001 and len(ofensores) < 3:
+                        ofensores.append((feat, p_desc, val))
+                    elif val > 0.001 and len(impulsionadores) < 3:
+                        impulsionadores.append((feat, p_desc, val))
+                while len(ofensores) < 3:
+                    ofensores.append(("Sem Impacto Relevante", "N/A", 0.0))
+                while len(impulsionadores) < 3:
+                    impulsionadores.append(("Sem Impacto Relevante", "N/A", 0.0))
+                for r in range(3):
+                    ofensor_data[r]["nome"].append(ofensores[r][0])
+                    ofensor_data[r]["pilar"].append(ofensores[r][1])
+                    ofensor_data[r]["impacto"].append(ofensores[r][2])
+                    imp_data[r]["nome"].append(impulsionadores[r][0])
+                    imp_data[r]["pilar"].append(impulsionadores[r][1])
+                    imp_data[r]["impacto"].append(impulsionadores[r][2])
+
+            for r in range(3):
+                df_prog[f"Ofensor_{r+1}_Nome"] = ofensor_data[r]["nome"]
+                df_prog[f"Ofensor_{r+1}_Pilar"] = ofensor_data[r]["pilar"]
+                df_prog[f"Ofensor_{r+1}_Impacto"] = ofensor_data[r]["impacto"]
+                df_prog[f"Impulsionador_{r+1}_Nome"] = imp_data[r]["nome"]
+                df_prog[f"Impulsionador_{r+1}_Pilar"] = imp_data[r]["pilar"]
+                df_prog[f"Impulsionador_{r+1}_Impacto"] = imp_data[r]["impacto"]
+
+            # Salvar SHAP summary (importancia media absoluta por feature)
+            try:
+                mean_abs_shap = np.abs(shap_values).mean(axis=0).tolist()
+                shap_summary = dict(zip(features_shap, mean_abs_shap))
+                caminho_summary = os.path.join(
+                    diretorio_saida,
+                    f"shap_summary_{suffix}_{programa}.json",
+                )
+                with open(caminho_summary, "w", encoding="utf-8") as f:
+                    json.dump(shap_summary, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"  Programa {programa}: erro ao salvar SHAP summary: {e}")
+
+            # Salvar SHAP values para waterfall interativo
+            try:
+                caminho_shap_npy = os.path.join(
+                    diretorio_saida,
+                    f"shap_values_{suffix}_{programa}.npy",
+                )
+                np.save(caminho_shap_npy, shap_values)
+                caminho_shap_meta = os.path.join(
+                    diretorio_saida,
+                    f"shap_values_{suffix}_{programa}.json",
+                )
+                with open(caminho_shap_meta, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "features": features_shap,
+                        "expected_value": float(explainer.expected_value),
+                        "target_transformation": transformacao_target,
+                    }, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"  Programa {programa}: erro ao salvar SHAP values: {e}")
+
+        except Exception:
+            logger.warning(
+                f"  Programa {programa}: SHAP indisponivel. "
+                "Impacto_Pilar preenchido com 0."
+            )
+            for col_name in [
+                "Impacto_Pilar_Volumetria", "Impacto_Pilar_Pessoas",
+                "Impacto_Pilar_TMA", "Impacto_Pilar_Saude",
+                "Impacto_Pilar_Contexto",
+            ]:
+                df_prog[col_name] = 0.0
+            for r in range(3):
+                df_prog[f"Ofensor_{r+1}_Nome"] = "SHAP N/A"
+                df_prog[f"Ofensor_{r+1}_Pilar"] = "N/A"
+                df_prog[f"Ofensor_{r+1}_Impacto"] = 0.0
+                df_prog[f"Impulsionador_{r+1}_Nome"] = "SHAP N/A"
+                df_prog[f"Impulsionador_{r+1}_Pilar"] = "N/A"
+                df_prog[f"Impulsionador_{r+1}_Impacto"] = 0.0
+
         resultados_lista.append(df_prog)
 
         logger.info(
@@ -327,12 +470,18 @@ def calcular_metricas(df: pd.DataFrame) -> dict:
 
         mae_erlang_prog = mean_absolute_error(real_prog, erlang_prog)
         mae_sc_prog = mean_absolute_error(real_prog, sc_prog)
+        rmse_erlang_prog = np.sqrt(mean_squared_error(real_prog, erlang_prog))
+        rmse_sc_prog = np.sqrt(mean_squared_error(real_prog, sc_prog))
 
-        metricas_por_programa[int(programa)] = {
+        prog_dict = {
             "intervalos": len(df_prog),
             "NS_Real_medio": float(real_prog.mean()),
+            "NS_SmartCorr_medio": float(sc_prog.mean()),
+            "NS_WFM_medio": float(erlang_prog.mean()),
             "MAE_SmartCorr": mae_sc_prog,
             "MAE_Erlang": mae_erlang_prog,
+            "RMSE_SmartCorr": rmse_sc_prog,
+            "RMSE_Erlang": rmse_erlang_prog,
             "R2_SmartCorr": r2_score(real_prog, sc_prog) if len(real_prog) > 1 else 0,
             "Uplift_MAE_pct": (
                 ((mae_erlang_prog - mae_sc_prog) / mae_erlang_prog * 100)
@@ -340,6 +489,11 @@ def calcular_metricas(df: pd.DataFrame) -> dict:
                 else 0
             ),
         }
+        for pilar in ["Volumetria", "Pessoas", "TMA", "Saude", "Contexto"]:
+            col = f"Impacto_Pilar_{pilar}"
+            if col in df_prog.columns:
+                prog_dict[col] = float(df_prog[col].mean())
+        metricas_por_programa[int(programa)] = prog_dict
 
     metricas_globais["por_programa"] = metricas_por_programa
     return metricas_globais
@@ -452,17 +606,26 @@ def imprimir_relatorio(metricas: dict, dias: int) -> None:
     print("=" * 70 + "\n")
 
 
-def main(dias_retroativos: int = 7, salvar_banco: bool = False) -> dict:
-    """Executa o benchmark completo.
+def executar_benchmark(
+    dias_retroativos: int = 7,
+    salvar_banco: bool = False,
+    progress_callback=None,
+    suffix: str = None,
+) -> dict:
+    """Executa o benchmark completo com suporte a progresso e histórico.
 
     Args:
         dias_retroativos: Quantidade de dias para trás a avaliar
         salvar_banco: Se True, salva resultados no banco (tabela separada)
+        progress_callback: Função opcional (progresso: int, mensagem: str)
+        suffix: Sufixo para nomes de arquivo. Se None, usa '{dias}d'
 
     Returns:
         dict: Métricas calculadas
     """
     logger.info(f"=== BENCHMARK SMARTCORR: ÚLTIMOS {dias_retroativos} DIAS ===")
+    if suffix is None:
+        suffix = f"{dias_retroativos}d"
 
     config = carregar_configuracoes()
     diretorio_saida = "reports/benchmark"
@@ -470,65 +633,113 @@ def main(dias_retroativos: int = 7, salvar_banco: bool = False) -> dict:
 
     # 1. Extrair dados retroativos do banco
     logger.info("--- Etapa 1/5: Extração de dados retroativos ---")
+    if progress_callback:
+        progress_callback(5, "Extraindo dados retroativos do banco...")
     df_bruto = extrair_dados_retroativos(config, dias_retroativos)
 
     if df_bruto.empty:
-        logger.error("Nenhum dado retornado do banco. Verifique a conexão e os filtros.")
+        msg = "Nenhum dado retornado do banco."
+        logger.error(msg)
+        if progress_callback:
+            progress_callback(100, f"Erro: {msg}")
         return {}
 
     # 2. Processar pipeline (limpeza + features)
     logger.info("--- Etapa 2/5: Pipeline de processamento ---")
+    if progress_callback:
+        progress_callback(25, "Processando pipeline (limpeza + features)...")
     df_processado = processar_pipeline(df_bruto, config)
 
     if df_processado is None or df_processado.empty:
-        logger.error("Pipeline retornou DataFrame vazio.")
+        msg = "Pipeline retornou DataFrame vazio."
+        logger.error(msg)
+        if progress_callback:
+            progress_callback(100, f"Erro: {msg}")
         return {}
 
     # 3. Filtrar apenas a janela de avaliação
     logger.info("--- Etapa 3/5: Filtrar janela de avaliação ---")
+    if progress_callback:
+        progress_callback(45, "Filtrando janela de avaliação...")
     df_avaliacao = filtrar_janela_avaliacao(df_processado, dias_retroativos)
 
     # 4. Gerar predições
     logger.info("--- Etapa 4/5: Gerando predições retroativas ---")
-    df_resultado = gerar_predicoes(df_avaliacao, config)
+    if progress_callback:
+        progress_callback(60, "Gerando predições por programa...")
+    df_resultado = gerar_predicoes(df_avaliacao, config, suffix=suffix, diretorio_saida=diretorio_saida)
 
     if df_resultado.empty:
-        logger.error("Nenhuma predição gerada.")
+        msg = "Nenhuma predição gerada."
+        logger.error(msg)
+        if progress_callback:
+            progress_callback(100, f"Erro: {msg}")
         return {}
 
     # 5. Calcular métricas e gerar relatório
     logger.info("--- Etapa 5/5: Calculando métricas e gerando relatório ---")
+    if progress_callback:
+        progress_callback(85, "Calculando métricas e gerando gráficos...")
     metricas = calcular_metricas(df_resultado)
 
     if not metricas:
         return {}
 
     # Salvar resultados em CSV
-    caminho_csv = os.path.join(diretorio_saida, f"benchmark_{dias_retroativos}d.csv")
+    caminho_csv = os.path.join(diretorio_saida, f"benchmark_{suffix}.csv")
     colunas_saida = [
         "DataRef", "Intervalo", "CodPrograma", "Canal",
         "Vol_Real", "Vol_Previsto", "HC_Previsto",
         "NS_Real", "NS_Previsto_WFM", "NS_Previsto_SmartCorr",
+        "Impacto_Pilar_Volumetria", "Impacto_Pilar_Pessoas", "Impacto_Pilar_TMA",
+        "Impacto_Pilar_Saude", "Impacto_Pilar_Contexto",
+        "Ofensor_1_Nome", "Ofensor_1_Pilar", "Ofensor_1_Impacto",
+        "Ofensor_2_Nome", "Ofensor_2_Pilar", "Ofensor_2_Impacto",
+        "Ofensor_3_Nome", "Ofensor_3_Pilar", "Ofensor_3_Impacto",
+        "Impulsionador_1_Nome", "Impulsionador_1_Pilar", "Impulsionador_1_Impacto",
+        "Impulsionador_2_Nome", "Impulsionador_2_Pilar", "Impulsionador_2_Impacto",
+        "Impulsionador_3_Nome", "Impulsionador_3_Pilar", "Impulsionador_3_Impacto",
     ]
     df_csv = df_resultado.rename(columns={"NS_Previsto_Erlang": "NS_Previsto_WFM"})
     colunas_existentes = [c for c in colunas_saida if c in df_csv.columns]
     df_csv[colunas_existentes].to_csv(caminho_csv, index=False)
     logger.info(f"Resultados salvos em: {caminho_csv}")
 
+    # Adicionar metadata da execução no JSON
+    metricas["_metadata"] = {
+        "data_execucao": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+        "dias_retroativos": dias_retroativos,
+        "suffix": suffix,
+    }
+
     # Salvar métricas em JSON
-    caminho_metricas = os.path.join(diretorio_saida, f"metricas_{dias_retroativos}d.json")
+    caminho_metricas = os.path.join(diretorio_saida, f"metricas_{suffix}.json")
     with open(caminho_metricas, "w", encoding="utf-8") as f:
         json.dump(metricas, f, indent=2, ensure_ascii=False)
     logger.info(f"Métricas salvas em: {caminho_metricas}")
 
     # Gerar gráficos
+    if progress_callback:
+        progress_callback(95, "Gerando gráficos...")
     gerar_graficos(df_resultado, diretorio_saida)
 
     # Imprimir relatório no console
     imprimir_relatorio(metricas, dias_retroativos)
 
     logger.info("=== BENCHMARK FINALIZADO COM SUCESSO ===")
+    if progress_callback:
+        progress_callback(100, "Benchmark concluído com sucesso!")
+
     return metricas
+
+
+def main(dias_retroativos: int = 7, salvar_banco: bool = False) -> dict:
+    """Wrapper CLI. Mantém compatibilidade com chamadas externas."""
+    return executar_benchmark(
+        dias_retroativos=dias_retroativos,
+        salvar_banco=salvar_banco,
+    )
 
 
 if __name__ == "__main__":
