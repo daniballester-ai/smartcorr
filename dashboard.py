@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 from datetime import datetime
 
@@ -235,294 +235,330 @@ with tab3:
                 nome = dl.get_nome_programa(p)
                 return f"{p} — {nome}" if nome else f"Programa {p}"
 
-            programa_sel = st.selectbox(
-                "Selecionar Programa",
-                options=programas,
-                format_func=_fmt_prog,
-            )
-
-            metricas = dl.load_metrics(run_sel)
-            prog_metrics = metricas.get("por_programa", {}).get(programa_sel, {})
-
-            if prog_metrics:
-                col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
-                with col_p1:
-                    st.metric("Intervalos", prog_metrics.get("intervalos", 0))
-                with col_p2:
-                    st.metric("NS Real Médio", f"{prog_metrics.get('NS_Real_medio', 0):.3f}",
-                              help="Média do NS real observado nos intervalos do período.")
-                with col_p3:
-                    st.metric("MAE SmartCorr", f"{prog_metrics.get('MAE_SmartCorr', 0):.4f}",
-                              help="Erro absoluto médio do SmartCorr. **Menor = melhor.**")
-                with col_p4:
-                    st.metric("MAE WFM", f"{prog_metrics.get('MAE_Erlang', 0):.4f}",
-                              help="Erro absoluto médio do WFM (Erlang). **Menor = melhor.**")
-                with col_p5:
-                    st.metric("Uplift vs WFM", f"{prog_metrics.get('Uplift_MAE_pct', 0):+.1f}%",
-                              help="Melhoria percentual do SmartCorr sobre o WFM. **Positivo = SmartCorr melhor.**")
+            col_sel1, col_sel2 = st.columns(2)
+            with col_sel1:
+                programa_sel = st.selectbox(
+                    "Selecionar Programa",
+                    options=programas,
+                    format_func=_fmt_prog,
+                )
 
             df_pred = dl.load_predictions_csv(run_sel)
+            df_prog_all = pd.DataFrame()
+            df_prog = pd.DataFrame()
+
             if not df_pred.empty:
-                df_prog = df_pred[df_pred["CodPrograma"] == int(programa_sel)].copy()
-                if not df_prog.empty:
-                    df_prog["DataHora"] = pd.to_datetime(
-                        df_prog["DataRef"].astype(str) + " " + df_prog["Intervalo"].astype(str)
+                df_prog_all = df_pred[df_pred["CodPrograma"] == int(programa_sel)].copy()
+                if not df_prog_all.empty:
+                    df_prog_all["DataHora"] = pd.to_datetime(
+                        df_prog_all["DataRef"].astype(str) + " " + df_prog_all["Intervalo"].astype(str)
                     )
-                    df_prog = df_prog.sort_values("DataHora")
+                    df_prog_all = df_prog_all.sort_values("DataHora")
+                    df_prog_all["_shap_idx_orig"] = range(len(df_prog_all))
 
-                    st.markdown("---")
-                    st.subheader("Série Temporal")
-                    st.caption("Intervalos não-operacionais (Vol_Real = 0) aparecem como quebras na linha.")
+                    datas_disponiveis = sorted(df_prog_all["DataRef"].unique())
+                    data_min = pd.to_datetime(datas_disponiveis[0]).date()
+                    data_max = pd.to_datetime(datas_disponiveis[-1]).date()
 
-                    df_chart = df_prog.copy()
-                    mask_non_op = df_chart["Vol_Real"] <= 0
-                    for col in ["NS_Real", "NS_Previsto_SmartCorr", "NS_Previsto_WFM"]:
-                        if col in df_chart.columns:
-                            df_chart.loc[mask_non_op, col] = None
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=df_chart["DataHora"], y=df_chart["NS_Real"],
-                        mode="lines", name="NS Real", line=dict(color="black", width=2), connectgaps=False))
-                    if "NS_Previsto_SmartCorr" in df_chart.columns:
-                        fig.add_trace(go.Scatter(x=df_chart["DataHora"],
-                            y=df_chart["NS_Previsto_SmartCorr"], mode="lines",
-                            name="NS SmartCorr", line=dict(color="#2196F3", width=2), connectgaps=False))
-                    if "NS_Previsto_WFM" in df_chart.columns:
-                        fig.add_trace(go.Scatter(x=df_chart["DataHora"],
-                            y=df_chart["NS_Previsto_WFM"], mode="lines",
-                            name="NS WFM", line=dict(color="#FF5252", width=1.5, dash="dash"), connectgaps=False))
-                    fig.update_layout(xaxis_title="Data/Hora", yaxis_title="Nível de Serviço",
-                        yaxis_range=[-0.05, 1.05], height=500, hovermode="x unified",
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
-                    fig.update_xaxes(
-                        rangeslider_visible=True,
-                        rangeselector=dict(
-                            buttons=list([
-                                dict(count=1, label="1d", step="day", stepmode="backward"),
-                                dict(count=3, label="3d", step="day", stepmode="backward"),
-                                dict(count=7, label="7d", step="day", stepmode="backward"),
-                                dict(step="all", label="Tudo")
-                            ])
+                    with col_sel2:
+                        import datetime as dt
+                        datas_selecionadas = st.date_input(
+                            "Filtrar por Período",
+                            value=(data_min, data_max),
+                            min_value=data_min,
+                            max_value=data_max,
                         )
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
 
-                    st.markdown("---")
-                    st.subheader("Impacto SHAP por Pilar (média do período)")
-                    impacto_cols = [
-                        "Impacto_Pilar_Volumetria", "Impacto_Pilar_Pessoas",
-                        "Impacto_Pilar_TMA", "Impacto_Pilar_Drivers_Operacionais",
-                        "Impacto_Pilar_Contexto", "Impacto_Pilar_Saude", # Compatibilidade
-                    ]
-                    impacto_exist = [c for c in impacto_cols if c in df_prog.columns]
-                    if impacto_exist:
-                        impacto_means = {c.replace("Impacto_Pilar_", ""): df_prog[c].mean() for c in impacto_exist}
-                        
-                        # Mapeamento para nomes amigáveis no gráfico
-                        nomes_display = {
-                            "Drivers_Operacionais": "Drivers Operacionais",
-                            "Saude": "Drivers Operacionais",
-                            "Contexto": "Contexto",
-                        }
-                        labels_grafico = [nomes_display.get(k, k) for k in impacto_means.keys()]
-                        
-                        fig_impacto = go.Figure()
-                        fig_impacto.add_trace(go.Bar(
-                            x=labels_grafico,
-                            y=list(impacto_means.values()),
-                            marker=dict(
-                                color=[CORES_PILARES.get(k, "#BDBDBD") for k in impacto_means.keys()]
-                            ),
-                            text=[f"{v:+.4f}" for v in impacto_means.values()],
+                    df_prog = df_prog_all.copy()
+                    if isinstance(datas_selecionadas, tuple) and len(datas_selecionadas) == 2:
+                        d_inicio, d_fim = datas_selecionadas
+                        df_prog = df_prog[
+                            (pd.to_datetime(df_prog["DataRef"]).dt.date >= d_inicio) &
+                            (pd.to_datetime(df_prog["DataRef"]).dt.date <= d_fim)
+                        ]
+                    elif isinstance(datas_selecionadas, tuple) and len(datas_selecionadas) == 1:
+                        d_inicio = datas_selecionadas[0]
+                        df_prog = df_prog[pd.to_datetime(df_prog["DataRef"]).dt.date == d_inicio]
+                    elif isinstance(datas_selecionadas, dt.date):
+                        d_inicio = datas_selecionadas
+                        df_prog = df_prog[pd.to_datetime(df_prog["DataRef"]).dt.date == d_inicio]
+
+            if not df_prog.empty:
+                intervalos = len(df_prog)
+                ns_real_medio = df_prog["NS_Real"].mean() if "NS_Real" in df_prog.columns else 0
+                mae_sc = (df_prog["NS_Real"] - df_prog["NS_Previsto_SmartCorr"]).abs().mean() if "NS_Previsto_SmartCorr" in df_prog.columns else 0
+                mae_wfm = (df_prog["NS_Real"] - df_prog["NS_Previsto_WFM"]).abs().mean() if "NS_Previsto_WFM" in df_prog.columns else 0
+                uplift = (mae_wfm - mae_sc) / mae_wfm * 100 if mae_wfm and mae_wfm > 0 else 0
+
+                col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
+                with col_p1:
+                    st.metric("Intervalos", intervalos)
+                with col_p2:
+                    st.metric("NS Real Médio", f"{ns_real_medio:.3f}",
+                              help="Média do NS real observado nos intervalos do período.")
+                with col_p3:
+                    st.metric("MAE SmartCorr", f"{mae_sc:.4f}",
+                              help="Erro absoluto médio do SmartCorr. **Menor = melhor.**")
+                with col_p4:
+                    st.metric("MAE WFM", f"{mae_wfm:.4f}",
+                              help="Erro absoluto médio do WFM (Erlang). **Menor = melhor.**")
+                with col_p5:
+                    st.metric("Uplift vs WFM", f"{uplift:+.1f}%",
+                              help="Melhoria percentual do SmartCorr sobre o WFM. **Positivo = SmartCorr melhor.**")
+
+                st.markdown("---")
+                st.subheader("Série Temporal")
+                st.caption("Intervalos não-operacionais (Vol_Real = 0) aparecem como quebras na linha.")
+
+                df_chart = df_prog.copy()
+                mask_non_op = df_chart["Vol_Real"] <= 0
+                for col in ["NS_Real", "NS_Previsto_SmartCorr", "NS_Previsto_WFM"]:
+                    if col in df_chart.columns:
+                        df_chart.loc[mask_non_op, col] = None
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df_chart["DataHora"], y=df_chart["NS_Real"],
+                    mode="lines", name="NS Real", line=dict(color="black", width=2), connectgaps=False))
+                if "NS_Previsto_SmartCorr" in df_chart.columns:
+                    fig.add_trace(go.Scatter(x=df_chart["DataHora"],
+                        y=df_chart["NS_Previsto_SmartCorr"], mode="lines",
+                        name="NS SmartCorr", line=dict(color="#2196F3", width=2), connectgaps=False))
+                if "NS_Previsto_WFM" in df_chart.columns:
+                    fig.add_trace(go.Scatter(x=df_chart["DataHora"],
+                        y=df_chart["NS_Previsto_WFM"], mode="lines",
+                        name="NS WFM", line=dict(color="#FF5252", width=1.5, dash="dash"), connectgaps=False))
+                fig.update_layout(xaxis_title="Data/Hora", yaxis_title="Nível de Serviço",
+                    yaxis_range=[-0.05, 1.05], height=500, hovermode="x unified",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
+                fig.update_xaxes(
+                    rangeslider_visible=True,
+                    rangeselector=dict(
+                        buttons=list([
+                            dict(count=1, label="1d", step="day", stepmode="backward"),
+                            dict(count=3, label="3d", step="day", stepmode="backward"),
+                            dict(count=7, label="7d", step="day", stepmode="backward"),
+                            dict(step="all", label="Tudo")
+                        ])
+                    )
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                st.markdown("---")
+                st.subheader("Impacto SHAP por Pilar (média do período)")
+                impacto_cols = [
+                    "Impacto_Pilar_Volumetria", "Impacto_Pilar_Pessoas",
+                    "Impacto_Pilar_TMA", "Impacto_Pilar_Drivers_Operacionais",
+                    "Impacto_Pilar_Contexto", "Impacto_Pilar_Saude", # Compatibilidade
+                ]
+                impacto_exist = [c for c in impacto_cols if c in df_prog.columns]
+                if impacto_exist:
+                    impacto_means = {c.replace("Impacto_Pilar_", ""): df_prog[c].mean() for c in impacto_exist}
+                    
+                    # Mapeamento para nomes amigáveis no gráfico
+                    nomes_display = {
+                        "Drivers_Operacionais": "Drivers Operacionais",
+                        "Saude": "Drivers Operacionais",
+                        "Contexto": "Contexto",
+                    }
+                    labels_grafico = [nomes_display.get(k, k) for k in impacto_means.keys()]
+                    
+                    fig_impacto = go.Figure()
+                    fig_impacto.add_trace(go.Bar(
+                        x=labels_grafico,
+                        y=list(impacto_means.values()),
+                        marker=dict(
+                            color=[CORES_PILARES.get(k, "#BDBDBD") for k in impacto_means.keys()]
+                        ),
+                        text=[f"{v:+.4f}" for v in impacto_means.values()],
+                        textposition="outside",
+                    ))
+                    fig_impacto.add_hline(y=0, line_color="gray", line_dash="dot")
+                    y_max = max(abs(v) for v in impacto_means.values()) * 1.4 or 0.01
+                    fig_impacto.update_layout(
+                        xaxis_title="Pilar", yaxis_title="Impacto SHAP médio",
+                        height=350,
+                        yaxis=dict(range=[-y_max, y_max]),
+                        margin=dict(l=10, r=10, t=50, b=30),
+                    )
+                    st.plotly_chart(fig_impacto, use_container_width=True)
+                    st.caption(
+                        "**Drivers Operacionais** = indicadores sintéticos de pressão de fila e capacidade (ex: indicador de sufoco, margem).<br>"
+                        "**Contexto** = features temporais (hora, dia da semana, início/fim de mês) "
+                        "+ operacionais (meta de SLA).<br>"
+                        "**Valores negativos** = pilar reduz o valor do modelo, o que **AUMENTA o Nível de Serviço (NS)**.<br>"
+                        "**Valores positivos** = pilar aumenta o valor do modelo, o que **REDUZ o Nível de Serviço (NS)**.",
+                        unsafe_allow_html=True
+                    )
+
+                with st.expander("🔬 SHAP Summary (importância por feature)"):
+                    shap_data = dl.load_shap_summary(run_sel, programa_sel)
+                    if shap_data:
+                        df_shap = pd.DataFrame(
+                            sorted(shap_data.items(), key=lambda x: x[1], reverse=True),
+                            columns=["Feature", "|SHAP| médio"],
+                        )
+                        top_n = min(15, len(df_shap))
+                        df_shap_top = df_shap.head(top_n).iloc[::-1]
+
+                        def _cor_feature(f):
+                            p = dl.get_pilar_da_feature(f)
+                            return CORES_PILARES.get(p, "#BDBDBD")
+                        lista_cores = [_cor_feature(f) for f in df_shap_top["Feature"]]
+
+                        fig_shap = go.Figure()
+                        fig_shap.add_trace(go.Bar(
+                            x=df_shap_top["|SHAP| médio"],
+                            y=df_shap_top["Feature"],
+                            orientation="h",
+                            marker_color=lista_cores,
+                            text=df_shap_top["|SHAP| médio"].apply(lambda v: f"{v:.4f}"),
                             textposition="outside",
                         ))
-                        fig_impacto.add_hline(y=0, line_color="gray", line_dash="dot")
-                        y_max = max(abs(v) for v in impacto_means.values()) * 1.4 or 0.01
-                        fig_impacto.update_layout(
-                            xaxis_title="Pilar", yaxis_title="Impacto SHAP médio",
-                            height=350,
-                            yaxis=dict(range=[-y_max, y_max]),
-                            margin=dict(l=10, r=10, t=50, b=30),
+                        fig_shap.update_layout(
+                            xaxis_title="Importância média |SHAP|",
+                            height=max(300, top_n * 28),
+                            margin=dict(l=10, r=80, t=20, b=50),
                         )
-                        st.plotly_chart(fig_impacto, use_container_width=True)
+                        st.plotly_chart(fig_shap, use_container_width=True)
+                        st.markdown(
+                            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9C27B0;margin-right:4px;"></span> TMA'
+                            '&nbsp;&nbsp;&nbsp;'
+                            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#FF9800;margin-right:4px;"></span> Pessoas'
+                            '&nbsp;&nbsp;&nbsp;'
+                            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2196F3;margin-right:4px;"></span> Volumetria'
+                            '&nbsp;&nbsp;&nbsp;'
+                            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#BDBDBD;margin-right:4px;"></span> Outros',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.info("SHAP Summary não disponível para esta execução. Execute um novo benchmark.")
+
+                    # Adicionar Intervalo_Fim (delta de 30 min entre intervalos)
+                    intervalos_ord = sorted(df_prog["Intervalo"].unique())
+                    if len(intervalos_ord) >= 2:
+                        h1, m1 = intervalos_ord[0].split(":")[:2]
+                        h2, m2 = intervalos_ord[1].split(":")[:2]
+                        delta_min = (int(h2) * 60 + int(m2)) - (int(h1) * 60 + int(m1))
+                    else:
+                        delta_min = 30
+                    df_prog["Intervalo_Inicio"] = df_prog["Intervalo"]
+                    minutos = df_prog["Intervalo"].str.split(":").apply(
+                        lambda x: int(x[0]) * 60 + int(x[1])
+                    )
+                    df_prog["Intervalo_Fim"] = (minutos + delta_min).apply(
+                        lambda m: f"{m // 60:02d}:{m % 60:02d}:00"
+                    )
+
+                shap_vals = dl.load_shap_values(run_sel, programa_sel)
+
+                with st.expander("📋 Dados tabulares"):
+                    df_tabela = df_prog.copy()
+                    df_tabela["_shap_idx"] = df_tabela["_shap_idx_orig"]
+                    df_tabela = df_tabela.sort_values(
+                        ["DataRef", "Intervalo"], ascending=[False, True]
+                    ).reset_index(drop=True)
+                    cols = ["DataRef", "Intervalo_Inicio", "Intervalo_Fim", "Vol_Real", "Vol_Previsto",
+                            "NS_Real", "NS_Previsto_SmartCorr", "NS_Previsto_WFM",
+                            "Impacto_Pilar_Volumetria", "Impacto_Pilar_Pessoas",
+                            "Impacto_Pilar_TMA", "Impacto_Pilar_Causas",
+                            "Impacto_Pilar_Contexto",
+                            "Ofensor_1_Nome", "Ofensor_1_Pilar", "Ofensor_1_Impacto",
+                            "Impulsionador_1_Nome", "Impulsionador_1_Pilar", "Impulsionador_1_Impacto",
+                            ]
+                    cols_exist = [c for c in cols if c in df_tabela.columns]
+                    sel_event = st.dataframe(
+                        df_tabela[cols_exist],
+                        use_container_width=True,
+                        hide_index=True,
+                        on_select="rerun",
+                        selection_mode="single-row",
+                    )
+                    selected_rows = sel_event.selection.rows
+                    if selected_rows:
+                        st.session_state["_shap_sel_idx"] = int(
+                            df_tabela.iloc[selected_rows[0]]["_shap_idx"]
+                        )
+                    elif "_shap_sel_idx" not in st.session_state:
+                        st.session_state["_shap_sel_idx"] = 0
+
+                st.markdown("---")
+                st.subheader("🔍 Waterfall SHAP do Intervalo")
+                if shap_vals is not None:
+                    expected_value, shap_features, shap_matrix, target_trans = shap_vals
+                    shap_idx = st.session_state["_shap_sel_idx"]
+                    if shap_matrix.shape[0] == len(df_prog_all):
+                        row_shap = shap_matrix[shap_idx]
+                        pred_transform = float(expected_value + row_shap.sum())
+                        if target_trans:
+                            pred_ns = float(1.0 - np.expm1(pred_transform))
+                        else:
+                            pred_ns = pred_transform
+                        row_info = df_prog.iloc[shap_idx]
+                        inicio = row_info.get("Intervalo_Inicio", row_info.get("Intervalo", ""))
+                        fim = row_info.get("Intervalo_Fim", "")
+                        if inicio and fim:
+                            row_label = f"{row_info['DataRef']} {inicio}-{fim}"
+                        else:
+                            row_label = f"{row_info['DataRef']} {inicio}"
+                        feat_val_pairs = sorted(
+                            zip(shap_features, row_shap),
+                            key=lambda x: abs(x[1]), reverse=True,
+                        )
+                        top_feats = feat_val_pairs[:15]
+                        top_names = [f[0] for f in top_feats]
+                        top_vals = [f[1] for f in top_feats]
+
+                        if len(feat_val_pairs) > 15:
+                            soma_outros = sum([f[1] for f in feat_val_pairs[15:]])
+                            top_names.append("Outros (demais features)")
+                            top_vals.append(soma_outros)
+
+                        labels = top_names + ["Modelo (base + Σ SHAP)"]
+                        measures = ["relative"] * len(top_names) + ["total"]
+                        y_vals = list(top_vals) + [pred_transform]
+
+                        fig_wf = go.Figure(go.Waterfall(
+                            orientation="v",
+                            measure=measures,
+                            x=labels,
+                            y=y_vals,
+                            base=expected_value,
+                            text=[f"{v:+.4f}" for v in top_vals] + [f"{pred_ns:.4f}"],
+                            textposition="outside",
+                            connector={"line": {"color": "lightgray", "width": 1}},
+                        ))
+                        # Waterfall não aceita marker no construtor; aplica cores via update_traces
+                        fig_wf.update_traces(
+                            increasing=dict(marker=dict(color="#F44336")),
+                            decreasing=dict(marker=dict(color="#4CAF50")),
+                            totals=dict(marker=dict(color="#2196F3")),
+                        )
+                        fig_wf.update_layout(
+                            title=f"Waterfall SHAP — {row_label}",
+                            height=450,
+                            margin=dict(l=10, r=10, t=50, b=120),
+                            xaxis_tickangle=-45,
+                            showlegend=False,
+                        )
+                        st.plotly_chart(fig_wf, use_container_width=True)
                         st.caption(
-                            "**Drivers Operacionais** = indicadores sintéticos de pressão de fila e capacidade (ex: indicador de sufoco, margem).<br>"
-                            "**Contexto** = features temporais (hora, dia da semana, início/fim de mês) "
-                            "+ operacionais (meta de SLA).<br>"
-                            "**Valores negativos** = pilar reduz o valor do modelo, o que **AUMENTA o Nível de Serviço (NS)**.<br>"
-                            "**Valores positivos** = pilar aumenta o valor do modelo, o que **REDUZ o Nível de Serviço (NS)**.",
+                            f"**Base** = {expected_value:.4f} (valor médio esperado pelo modelo).<br>"
+                            f"**Barras verdes (negativas)** indicam features que reduzem o valor do modelo, o que **AUMENTA o NS**.<br>"
+                            f"**Barras vermelhas (positivas)** indicam features que aumentam o valor do modelo, o que **REDUZ o NS**.<br>"
+                            + (
+                                f"**Modelo (espaço transformado)** = {pred_transform:.4f} → "
+                                f"**NS** = 1 − expm1({pred_transform:.4f}) = **{pred_ns:.4f}**<br>"
+                                if target_trans
+                                else f"**NS** = {pred_transform:.4f}"
+                            ),
                             unsafe_allow_html=True
                         )
-
-                    with st.expander("🔬 SHAP Summary (importância por feature)"):
-                        shap_data = dl.load_shap_summary(run_sel, programa_sel)
-                        if shap_data:
-                            df_shap = pd.DataFrame(
-                                sorted(shap_data.items(), key=lambda x: x[1], reverse=True),
-                                columns=["Feature", "|SHAP| médio"],
-                            )
-                            top_n = min(15, len(df_shap))
-                            df_shap_top = df_shap.head(top_n).iloc[::-1]
-
-                            def _cor_feature(f):
-                                p = dl.get_pilar_da_feature(f)
-                                return CORES_PILARES.get(p, "#BDBDBD")
-                            lista_cores = [_cor_feature(f) for f in df_shap_top["Feature"]]
-
-                            fig_shap = go.Figure()
-                            fig_shap.add_trace(go.Bar(
-                                x=df_shap_top["|SHAP| médio"],
-                                y=df_shap_top["Feature"],
-                                orientation="h",
-                                marker_color=lista_cores,
-                                text=df_shap_top["|SHAP| médio"].apply(lambda v: f"{v:.4f}"),
-                                textposition="outside",
-                            ))
-                            fig_shap.update_layout(
-                                xaxis_title="Importância média |SHAP|",
-                                height=max(300, top_n * 28),
-                                margin=dict(l=10, r=80, t=20, b=50),
-                            )
-                            st.plotly_chart(fig_shap, use_container_width=True)
-                            st.markdown(
-                                '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9C27B0;margin-right:4px;"></span> TMA'
-                                '&nbsp;&nbsp;&nbsp;'
-                                '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#FF9800;margin-right:4px;"></span> Pessoas'
-                                '&nbsp;&nbsp;&nbsp;'
-                                '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2196F3;margin-right:4px;"></span> Volumetria'
-                                '&nbsp;&nbsp;&nbsp;'
-                                '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#BDBDBD;margin-right:4px;"></span> Outros',
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            st.info("SHAP Summary não disponível para esta execução. Execute um novo benchmark.")
-
-                        # Adicionar Intervalo_Fim (delta de 30 min entre intervalos)
-                        intervalos_ord = sorted(df_prog["Intervalo"].unique())
-                        if len(intervalos_ord) >= 2:
-                            h1, m1 = intervalos_ord[0].split(":")[:2]
-                            h2, m2 = intervalos_ord[1].split(":")[:2]
-                            delta_min = (int(h2) * 60 + int(m2)) - (int(h1) * 60 + int(m1))
-                        else:
-                            delta_min = 30
-                        df_prog["Intervalo_Inicio"] = df_prog["Intervalo"]
-                        minutos = df_prog["Intervalo"].str.split(":").apply(
-                            lambda x: int(x[0]) * 60 + int(x[1])
-                        )
-                        df_prog["Intervalo_Fim"] = (minutos + delta_min).apply(
-                            lambda m: f"{m // 60:02d}:{m % 60:02d}:00"
-                        )
-
-                    shap_vals = dl.load_shap_values(run_sel, programa_sel)
-
-                    with st.expander("📋 Dados tabulares"):
-                        df_tabela = df_prog.copy()
-                        df_tabela["_shap_idx"] = range(len(df_tabela))
-                        df_tabela = df_tabela.sort_values(
-                            ["DataRef", "Intervalo"], ascending=[False, True]
-                        ).reset_index(drop=True)
-                        cols = ["DataRef", "Intervalo_Inicio", "Intervalo_Fim", "Vol_Real", "Vol_Previsto",
-                                "NS_Real", "NS_Previsto_SmartCorr", "NS_Previsto_WFM",
-                                "Impacto_Pilar_Volumetria", "Impacto_Pilar_Pessoas",
-                                "Impacto_Pilar_TMA", "Impacto_Pilar_Causas",
-                                "Impacto_Pilar_Contexto",
-                                "Ofensor_1_Nome", "Ofensor_1_Pilar", "Ofensor_1_Impacto",
-                                "Impulsionador_1_Nome", "Impulsionador_1_Pilar", "Impulsionador_1_Impacto",
-                                ]
-                        cols_exist = [c for c in cols if c in df_tabela.columns]
-                        sel_event = st.dataframe(
-                            df_tabela[cols_exist],
-                            use_container_width=True,
-                            hide_index=True,
-                            on_select="rerun",
-                            selection_mode="single-row",
-                        )
-                        selected_rows = sel_event.selection.rows
-                        if selected_rows:
-                            st.session_state["_shap_sel_idx"] = int(
-                                df_tabela.iloc[selected_rows[0]]["_shap_idx"]
-                            )
-                        elif "_shap_sel_idx" not in st.session_state:
-                            st.session_state["_shap_sel_idx"] = 0
-
-                    st.markdown("---")
-                    st.subheader("🔍 Waterfall SHAP do Intervalo")
-                    if shap_vals is not None:
-                        expected_value, shap_features, shap_matrix, target_trans = shap_vals
-                        shap_idx = st.session_state["_shap_sel_idx"]
-                        if shap_matrix.shape[0] == len(df_prog):
-                            row_shap = shap_matrix[shap_idx]
-                            pred_transform = float(expected_value + row_shap.sum())
-                            if target_trans:
-                                pred_ns = float(1.0 - np.expm1(pred_transform))
-                            else:
-                                pred_ns = pred_transform
-                            row_info = df_prog.iloc[shap_idx]
-                            inicio = row_info.get("Intervalo_Inicio", row_info.get("Intervalo", ""))
-                            fim = row_info.get("Intervalo_Fim", "")
-                            if inicio and fim:
-                                row_label = f"{row_info['DataRef']} {inicio}-{fim}"
-                            else:
-                                row_label = f"{row_info['DataRef']} {inicio}"
-                            feat_val_pairs = sorted(
-                                zip(shap_features, row_shap),
-                                key=lambda x: abs(x[1]), reverse=True,
-                            )
-                            top_feats = feat_val_pairs[:15]
-                            top_names = [f[0] for f in top_feats]
-                            top_vals = [f[1] for f in top_feats]
-
-                            if len(feat_val_pairs) > 15:
-                                soma_outros = sum([f[1] for f in feat_val_pairs[15:]])
-                                top_names.append("Outros (demais features)")
-                                top_vals.append(soma_outros)
-
-                            labels = top_names + ["Modelo (base + Σ SHAP)"]
-                            measures = ["relative"] * len(top_names) + ["total"]
-                            y_vals = list(top_vals) + [pred_transform]
-
-                            fig_wf = go.Figure(go.Waterfall(
-                                orientation="v",
-                                measure=measures,
-                                x=labels,
-                                y=y_vals,
-                                base=expected_value,
-                                text=[f"{v:+.4f}" for v in top_vals] + [f"{pred_ns:.4f}"],
-                                textposition="outside",
-                                connector={"line": {"color": "lightgray", "width": 1}},
-                            ))
-                            # Waterfall não aceita marker no construtor; aplica cores via update_traces
-                            fig_wf.update_traces(
-                                increasing=dict(marker=dict(color="#F44336")),
-                                decreasing=dict(marker=dict(color="#4CAF50")),
-                                totals=dict(marker=dict(color="#2196F3")),
-                            )
-                            fig_wf.update_layout(
-                                title=f"Waterfall SHAP — {row_label}",
-                                height=450,
-                                margin=dict(l=10, r=10, t=50, b=120),
-                                xaxis_tickangle=-45,
-                                showlegend=False,
-                            )
-                            st.plotly_chart(fig_wf, use_container_width=True)
-                            st.caption(
-                                f"**Base** = {expected_value:.4f} (valor médio esperado pelo modelo).<br>"
-                                f"**Barras verdes (negativas)** indicam features que reduzem o valor do modelo, o que **AUMENTA o NS**.<br>"
-                                f"**Barras vermelhas (positivas)** indicam features que aumentam o valor do modelo, o que **REDUZ o NS**.<br>"
-                                + (
-                                    f"**Modelo (espaço transformado)** = {pred_transform:.4f} → "
-                                    f"**NS** = 1 − expm1({pred_transform:.4f}) = **{pred_ns:.4f}**<br>"
-                                    if target_trans
-                                    else f"**NS** = {pred_transform:.4f}"
-                                ),
-                                unsafe_allow_html=True
-                            )
-                        else:
-                            st.warning(
-                                f"Número de registros ({len(df_prog)}) não corresponde "
-                                f"ao SHAP salvo ({shap_matrix.shape[0]}). Reexecute o benchmark."
-                            )
                     else:
-                        st.info("Dados SHAP não disponíveis. Execute um novo benchmark para habilitar esta análise.")
+                        st.warning(
+                            f"Número de registros ({len(df_prog)}) não corresponde "
+                            f"ao SHAP salvo ({shap_matrix.shape[0]}). Reexecute o benchmark."
+                        )
+                else:
+                    st.info("Dados SHAP não disponíveis. Execute um novo benchmark para habilitar esta análise.")
 
 # ==============================================================================
 # TAB 4 - HISTÓRICO
